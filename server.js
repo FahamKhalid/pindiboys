@@ -1,11 +1,22 @@
 require("dotenv").config();
 
+const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const {
   initDb,
+  getAccount,
+  saveAccount,
+  touchAccount,
+  saveFriendship,
+  removeFriendship,
+  getFriendIds,
+  saveCustomGroup,
+  addGroupMembers,
+  getCustomGroup,
+  getCustomGroupsForUser,
   saveMessage,
   getGroupHistory,
   getPrivateHistory,
@@ -21,7 +32,7 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const SESSION_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const stickerIds = new Set([
   "angry",
   "cry",
@@ -37,11 +48,9 @@ const stickerIds = new Set([
   "thinking",
   "wink",
 ]);
+
 const users = new Map();
-const friends = new Map();
-const customGroups = new Map();
-const sessions = new Map();
-const usernameSessions = new Map();
+const socketsByUser = new Map();
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -56,37 +65,26 @@ function cleanName(name) {
     .slice(0, 32);
 }
 
+function cleanPin(pin) {
+  const value = String(pin || "").trim();
+  return /^\d{4}$/.test(value) ? value : "";
+}
+
 function cleanText(text) {
   return String(text || "").trim().slice(0, 1000);
 }
 
 function nameKey(name) {
-  return cleanName(name).toLowerCase();
+  return cleanName(name).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function makeSessionToken() {
-  return `sess_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random()
-    .toString(36)
-    .slice(2)}`;
+function hashPin(userId, pin) {
+  return crypto.createHash("sha256").update(`${userId}:${pin}`).digest("hex");
 }
 
-function isExpired(session) {
-  return !session || Date.now() - session.lastSeen > SESSION_TTL_MS;
-}
-
-function cleanupExpiredSessions() {
-  sessions.forEach((session, token) => {
-    if (!isExpired(session)) return;
-    sessions.delete(token);
-    if (usernameSessions.get(nameKey(session.name)) === token) {
-      usernameSessions.delete(nameKey(session.name));
-    }
-  });
-}
-
-function touchSession(token) {
-  const session = sessions.get(token);
-  if (session) session.lastSeen = Date.now();
+function isInactive(account) {
+  if (!account?.lastSeen) return false;
+  return Date.now() - new Date(account.lastSeen).getTime() > INACTIVITY_TTL_MS;
 }
 
 function cleanMediaUrl(mediaUrl) {
@@ -129,6 +127,10 @@ function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
   };
 }
 
+function avatarFor(name) {
+  return cleanName(name).charAt(0).toUpperCase() || "P";
+}
+
 function cleanAvatar(avatar, name) {
   const initialAvatar = {
     type: "initial",
@@ -151,137 +153,141 @@ function cleanAvatar(avatar, name) {
   return initialAvatar;
 }
 
-function avatarFor(name) {
-  return cleanName(name).charAt(0).toUpperCase() || "P";
+function userRoom(userId) {
+  return `user:${userId}`;
+}
+
+function onlineUserIds() {
+  return Array.from(socketsByUser.keys());
 }
 
 function publicUsers() {
-  return Array.from(users.values()).map((user) => ({
-    id: user.id,
-    name: user.name,
-    avatar: user.avatar,
-  }));
-}
-
-function publicGroupsFor(userId) {
-  return Array.from(customGroups.values())
-    .filter((group) => group.members.has(userId))
-    .map((group) => ({
-      id: group.id,
-      name: group.name,
-      ownerId: group.ownerId,
-      members: Array.from(group.members)
-        .map((memberId) => users.get(memberId))
-        .filter(Boolean)
-        .map((member) => ({
-          id: member.id,
-          name: member.name,
-          avatar: member.avatar,
-        })),
+  return onlineUserIds()
+    .map((userId) => users.get(Array.from(socketsByUser.get(userId) || [])[0]))
+    .filter(Boolean)
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      avatar: user.avatar,
     }));
 }
 
-function publicFriendIds(userId) {
-  return Array.from(friends.get(userId) || []);
+function addOnlineSocket(socketId, user) {
+  users.set(socketId, user);
+  if (!socketsByUser.has(user.id)) socketsByUser.set(user.id, new Set());
+  socketsByUser.get(user.id).add(socketId);
 }
 
-function emitUserList() {
+function removeOnlineSocket(socketId) {
+  const user = users.get(socketId);
+  users.delete(socketId);
+
+  if (!user) return null;
+
+  const socketIds = socketsByUser.get(user.id);
+  if (socketIds) {
+    socketIds.delete(socketId);
+    if (!socketIds.size) socketsByUser.delete(user.id);
+  }
+
+  return user;
+}
+
+function firstSocketForUser(userId) {
+  const socketIds = socketsByUser.get(userId);
+  if (!socketIds?.size) return null;
+  return users.get(Array.from(socketIds)[0]) || null;
+}
+
+async function publicGroupsFor(userId) {
+  return getCustomGroupsForUser(userId);
+}
+
+async function emitUserList() {
   io.emit("user_list", publicUsers());
 }
 
-function emitSocialState(userId) {
-  io.to(userId).emit("social_state", {
-    friends: publicFriendIds(userId),
-    customGroups: publicGroupsFor(userId),
+async function emitSocialState(userId) {
+  io.to(userRoom(userId)).emit("social_state", {
+    friends: await getFriendIds(userId),
+    customGroups: await publicGroupsFor(userId),
   });
 }
 
-function emitSocialStateForUsers(userIds) {
-  userIds.forEach((userId) => emitSocialState(userId));
-}
-
-function addFriendship(userA, userB) {
-  if (!friends.has(userA)) friends.set(userA, new Set());
-  if (!friends.has(userB)) friends.set(userB, new Set());
-  friends.get(userA).add(userB);
-  friends.get(userB).add(userA);
-}
-
-function removeFromSocialState(userId) {
-  friends.delete(userId);
-  friends.forEach((friendSet) => friendSet.delete(userId));
-
-  customGroups.forEach((group) => {
-    group.members.delete(userId);
-    if (group.ownerId === userId || group.members.size === 0) {
-      customGroups.delete(group.id);
-      return;
-    }
-    emitSocialStateForUsers(group.members);
-  });
+async function emitSocialStateForUsers(userIds) {
+  await Promise.all(Array.from(userIds).map((userId) => emitSocialState(userId)));
 }
 
 function makeGroupId() {
   return `room_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
+async function joinCustomGroupRooms(socket, userId) {
+  const groups = await getCustomGroupsForUser(userId);
+  groups.forEach((group) => socket.join(group.id));
+}
+
 io.on("connection", (socket) => {
-  socket.on("join", async ({ name, avatar, sessionToken } = {}) => {
-    cleanupExpiredSessions();
+  socket.on("join", async ({ name, pin, avatar } = {}) => {
     const safeName = cleanName(name);
-    const safeNameKey = nameKey(safeName);
-    const oldToken = String(sessionToken || "");
-    const oldSession = sessions.get(oldToken);
-    const canResume =
-      oldToken &&
-      oldSession &&
-      !isExpired(oldSession) &&
-      nameKey(oldSession.name) === safeNameKey;
+    const safePin = cleanPin(pin);
+    const userId = nameKey(safeName);
 
-    if (!safeName) {
-      socket.emit("join_error", { message: "Naam zaroori hai." });
+    if (!safeName || !userId) {
+      socket.emit("join_error", { message: "Name required." });
       return;
     }
 
-    const lockedByToken = usernameSessions.get(safeNameKey);
-    if (lockedByToken && lockedByToken !== oldToken && !isExpired(sessions.get(lockedByToken))) {
-      socket.emit("join_error", { message: "Username already in use." });
+    if (!safePin) {
+      socket.emit("join_error", { message: "4 digit key required." });
       return;
     }
 
-    if (lockedByToken && isExpired(sessions.get(lockedByToken))) {
-      sessions.delete(lockedByToken);
-      usernameSessions.delete(safeNameKey);
+    const pinHash = hashPin(userId, safePin);
+    const existingAccount = await getAccount(userId);
+    const isNewAccount = !existingAccount;
+
+    if (existingAccount && existingAccount.pinHash !== pinHash) {
+      socket.emit("join_error", { message: "Wrong key for this username." });
+      return;
     }
 
-    const token = canResume ? oldToken : makeSessionToken();
-    const safeAvatar = canResume ? oldSession.avatar : cleanAvatar(avatar, safeName);
-    sessions.set(token, {
-      token,
-      name: safeName,
+    const safeAvatar = existingAccount?.avatar || cleanAvatar(avatar, safeName);
+    const account = await saveAccount({
+      id: userId,
+      name: existingAccount?.name || safeName,
+      pinHash,
       avatar: safeAvatar,
-      lastSeen: Date.now(),
     });
-    usernameSessions.set(safeNameKey, token);
 
     const user = {
-      id: socket.id,
-      name: safeName,
-      avatar: safeAvatar,
-      sessionToken: token,
+      id: account.id,
+      name: account.name,
+      avatar: account.avatar || safeAvatar,
+      pinSaved: true,
     };
 
-    users.set(socket.id, user);
-    friends.set(socket.id, new Set());
+    addOnlineSocket(socket.id, user);
     socket.join("group");
-    socket.emit("joined", user);
-    emitSocialState(socket.id);
+    socket.join(userRoom(user.id));
+    await joinCustomGroupRooms(socket, user.id);
+
+    socket.emit("joined", {
+      ...user,
+      inactivityExpiresAt: Date.now() + INACTIVITY_TTL_MS,
+    });
+
+    if (!isNewAccount || isInactive(existingAccount)) {
+      socket.emit("group_history", await getGroupHistory());
+    }
+
+    await emitSocialState(user.id);
 
     const systemMessage = await saveMessage({
       type: "group",
       senderId: "system",
       senderName: "System",
-      text: `${safeName} joined Pindi Gang`,
+      text: `${account.name} joined Pindi Gang`,
     });
 
     socket.to("group").emit("group_message", {
@@ -289,7 +295,7 @@ io.on("connection", (socket) => {
       system: true,
     });
 
-    emitUserList();
+    await emitUserList();
   });
 
   socket.on("group_message", async (payload = {}) => {
@@ -297,7 +303,7 @@ io.on("connection", (socket) => {
     const safePayload = cleanMessagePayload(payload);
 
     if (!user || !safePayload) return;
-    touchSession(user.sessionToken);
+    await touchAccount(user.id);
 
     const message = await saveMessage({
       type: "group",
@@ -314,11 +320,19 @@ io.on("connection", (socket) => {
 
   socket.on("custom_group_message", async ({ groupId, ...payload } = {}) => {
     const user = users.get(socket.id);
-    const group = customGroups.get(groupId);
+    const group = await getCustomGroup(groupId);
     const safePayload = cleanMessagePayload(payload);
 
-    if (!user || !group || !group.members.has(socket.id) || !safePayload) return;
-    touchSession(user.sessionToken);
+    if (
+      !user ||
+      !group ||
+      !group.members.some((member) => member.id === user.id) ||
+      !safePayload
+    ) {
+      return;
+    }
+
+    await touchAccount(user.id);
 
     const message = await saveMessage({
       type: "group",
@@ -339,11 +353,11 @@ io.on("connection", (socket) => {
 
   socket.on("private_message", async ({ toId, ...payload } = {}) => {
     const sender = users.get(socket.id);
-    const receiver = users.get(toId);
+    const receiver = firstSocketForUser(toId);
     const safePayload = cleanMessagePayload(payload);
 
     if (!sender || !receiver || !safePayload) return;
-    touchSession(sender.sessionToken);
+    await touchAccount(sender.id);
 
     const message = await saveMessage({
       type: "private",
@@ -357,8 +371,8 @@ io.on("connection", (socket) => {
     });
 
     socket.emit("private_message", message);
-    socket.to(receiver.id).emit("private_message", message);
-    socket.to(receiver.id).emit("private_notify", {
+    socket.to(userRoom(receiver.id)).emit("private_message", message);
+    socket.to(userRoom(receiver.id)).emit("private_notify", {
       fromId: sender.id,
       fromName: sender.name,
     });
@@ -366,7 +380,7 @@ io.on("connection", (socket) => {
 
   socket.on("get_private_history", async ({ withId } = {}) => {
     const user = users.get(socket.id);
-    const other = users.get(withId);
+    const other = await getAccount(withId);
 
     if (!user || !other) return;
 
@@ -376,46 +390,58 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("add_friend", ({ userId } = {}) => {
+  socket.on("add_friend", async ({ userId } = {}) => {
     const user = users.get(socket.id);
-    const other = users.get(userId);
-    if (!user || !other || user.id === other.id) return;
-    touchSession(user.sessionToken);
+    const other = firstSocketForUser(userId);
 
-    addFriendship(user.id, other.id);
-    emitSocialState(user.id);
-    emitSocialState(other.id);
+    if (!user || !other || user.id === other.id) return;
+    await touchAccount(user.id);
+    await saveFriendship(user.id, other.id);
+    await emitSocialState(user.id);
+    await emitSocialState(other.id);
   });
 
-  socket.on("remove_friend", ({ userId } = {}) => {
-    if (friends.has(socket.id)) friends.get(socket.id).delete(userId);
-    if (friends.has(userId)) friends.get(userId).delete(socket.id);
-    emitSocialState(socket.id);
-    emitSocialState(userId);
+  socket.on("remove_friend", async ({ userId } = {}) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    await removeFriendship(user.id, userId);
+    await emitSocialState(user.id);
+    await emitSocialState(userId);
   });
 
   socket.on("create_custom_group", async ({ name, memberIds = [] } = {}) => {
     const user = users.get(socket.id);
     const safeName = cleanName(name);
     if (!user || !safeName) return;
-    touchSession(user.sessionToken);
 
-    const members = new Set([socket.id]);
+    await touchAccount(user.id);
+
+    const members = new Set([user.id]);
     memberIds.forEach((memberId) => {
-      if (users.has(memberId)) members.add(memberId);
+      if (firstSocketForUser(memberId)) members.add(memberId);
     });
 
     const group = {
       id: makeGroupId(),
       name: safeName,
-      ownerId: socket.id,
+      ownerId: user.id,
       members,
     };
 
-    customGroups.set(group.id, group);
+    await saveCustomGroup({
+      id: group.id,
+      name: group.name,
+      ownerId: group.ownerId,
+      memberIds: Array.from(members),
+    });
+
     members.forEach((memberId) => {
-      const memberSocket = io.sockets.sockets.get(memberId);
-      if (memberSocket) memberSocket.join(group.id);
+      const socketIds = socketsByUser.get(memberId) || [];
+      socketIds.forEach((socketId) => {
+        const memberSocket = io.sockets.sockets.get(socketId);
+        if (memberSocket) memberSocket.join(group.id);
+      });
     });
 
     const systemMessage = await saveMessage({
@@ -431,27 +457,36 @@ io.on("connection", (socket) => {
       message: { ...systemMessage, system: true },
     });
 
-    emitSocialStateForUsers(members);
+    await emitSocialStateForUsers(members);
     socket.emit("custom_group_created", { groupId: group.id });
   });
 
   socket.on("add_group_members", async ({ groupId, memberIds = [] } = {}) => {
     const user = users.get(socket.id);
-    const group = customGroups.get(groupId);
-    if (!user || !group || !group.members.has(socket.id)) return;
-    touchSession(user.sessionToken);
+    const group = await getCustomGroup(groupId);
+    if (!user || !group || !group.members.some((member) => member.id === user.id)) return;
 
-    const addedUsers = [];
-    memberIds.forEach((memberId) => {
-      const member = users.get(memberId);
-      if (!member || group.members.has(memberId)) return;
-      group.members.add(memberId);
-      const memberSocket = io.sockets.sockets.get(memberId);
-      if (memberSocket) memberSocket.join(group.id);
-      addedUsers.push(member);
-    });
+    await touchAccount(user.id);
+
+    const existingMemberIds = new Set(group.members.map((member) => member.id));
+    const addedUsers = memberIds
+      .map((memberId) => firstSocketForUser(memberId))
+      .filter((member) => member && !existingMemberIds.has(member.id));
 
     if (!addedUsers.length) return;
+
+    await addGroupMembers(
+      group.id,
+      addedUsers.map((member) => member.id)
+    );
+
+    addedUsers.forEach((member) => {
+      const socketIds = socketsByUser.get(member.id) || [];
+      socketIds.forEach((socketId) => {
+        const memberSocket = io.sockets.sockets.get(socketId);
+        if (memberSocket) memberSocket.join(group.id);
+      });
+    });
 
     const systemMessage = await saveMessage({
       type: "group",
@@ -466,13 +501,14 @@ io.on("connection", (socket) => {
       message: { ...systemMessage, system: true },
     });
 
-    emitSocialStateForUsers(group.members);
+    const updatedGroup = await getCustomGroup(group.id);
+    await emitSocialStateForUsers(updatedGroup.members.map((member) => member.id));
   });
 
   socket.on("get_custom_group_history", async ({ groupId } = {}) => {
     const user = users.get(socket.id);
-    const group = customGroups.get(groupId);
-    if (!user || !group || !group.members.has(socket.id)) return;
+    const group = await getCustomGroup(groupId);
+    if (!user || !group || !group.members.some((member) => member.id === user.id)) return;
 
     socket.emit("custom_group_history", {
       groupId,
@@ -480,13 +516,13 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("typing", ({ toId, isTyping } = {}) => {
+  socket.on("typing", async ({ toId, isTyping } = {}) => {
     const user = users.get(socket.id);
     if (!user) return;
-    touchSession(user.sessionToken);
+    await touchAccount(user.id);
 
     if (toId) {
-      socket.to(toId).emit("typing", {
+      socket.to(userRoom(toId)).emit("typing", {
         scope: "private",
         fromId: user.id,
         name: user.name,
@@ -504,9 +540,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    const user = users.get(socket.id);
-    users.delete(socket.id);
-    removeFromSocialState(socket.id);
+    const user = removeOnlineSocket(socket.id);
 
     if (!user) return;
 
@@ -522,19 +556,12 @@ io.on("connection", (socket) => {
       system: true,
     });
 
-    emitUserList();
+    await emitUserList();
   });
 
   socket.on("logout", async () => {
-    const user = users.get(socket.id);
+    const user = removeOnlineSocket(socket.id);
     if (!user) return;
-
-    users.delete(socket.id);
-    sessions.delete(user.sessionToken);
-    if (usernameSessions.get(nameKey(user.name)) === user.sessionToken) {
-      usernameSessions.delete(nameKey(user.name));
-    }
-    removeFromSocialState(socket.id);
 
     const systemMessage = await saveMessage({
       type: "group",
@@ -548,7 +575,7 @@ io.on("connection", (socket) => {
       system: true,
     });
 
-    emitUserList();
+    await emitUserList();
     socket.emit("logged_out");
     socket.disconnect(true);
   });

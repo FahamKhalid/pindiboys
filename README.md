@@ -16,10 +16,13 @@ PindiBoys is a realtime Rawalpindi-style group and private chat app. Users join 
 - Send local sticker-pack stickers by reference
 - Uploaded profile images show beside names and messages
 - New users do not receive old public group history
-- Browser saved login with username lock until logout or 3 days of inactivity
+- Browser saved login with a 4 digit key
+- Same username requires the same key on future login
+- Saved browser login expires after 1 week of inactivity
+- Returning users restore old chats, friends, and groups
 - Typing indicators and unread badges
 
-Friends and custom groups are session-based because this app does not require accounts or passwords. They reset when users disconnect or the server restarts.
+Friends, custom groups, and messages are restored for the same username/key account.
 
 ## Stickers
 

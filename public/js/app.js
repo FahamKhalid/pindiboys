@@ -4,6 +4,7 @@ const joinScreen = document.getElementById("joinScreen");
 const chatScreen = document.getElementById("chatScreen");
 const joinForm = document.getElementById("joinForm");
 const nameInput = document.getElementById("nameInput");
+const pinInput = document.getElementById("pinInput");
 const avatarPreview = document.getElementById("avatarPreview");
 const avatarUpload = document.getElementById("avatarUpload");
 const joinError = document.getElementById("joinError");
@@ -68,6 +69,7 @@ const stickerPack = [
   { id: "wink", name: "Wink" },
 ];
 const savedLoginKey = "pindiboys.session.v1";
+const savedLoginTtlMs = 7 * 24 * 60 * 60 * 1000;
 
 const groupUser = {
   id: "group",
@@ -119,19 +121,26 @@ function setJoinError(message) {
 
 function getSavedLogin() {
   try {
-    return JSON.parse(localStorage.getItem(savedLoginKey) || "null");
+    const saved = JSON.parse(localStorage.getItem(savedLoginKey) || "null");
+    if (!saved) return null;
+    if (Date.now() - Number(saved.lastSeen || 0) > savedLoginTtlMs) {
+      clearSavedLogin();
+      return null;
+    }
+    return saved;
   } catch (_error) {
     return null;
   }
 }
 
-function saveLogin(user) {
+function saveLogin(user, pin) {
   localStorage.setItem(
     savedLoginKey,
     JSON.stringify({
       name: user.name,
+      pin,
       avatar: user.avatar,
-      sessionToken: user.sessionToken,
+      lastSeen: Date.now(),
     })
   );
 }
@@ -819,18 +828,23 @@ searchInput.addEventListener("input", () => {
 joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const name = nameInput.value.trim();
+  const pin = pinInput.value.trim();
 
   if (!name) {
     setJoinError("Naam likhna zaroori hai.");
     return;
   }
 
+  if (!/^\d{4}$/.test(pin)) {
+    setJoinError("4 digit key zaroori hai.");
+    return;
+  }
+
   setJoinError("");
-  const saved = getSavedLogin();
   socket.emit("join", {
     name,
+    pin,
     avatar: state.selectedAvatar,
-    sessionToken: saved && saved.name === name ? saved.sessionToken : null,
   });
 });
 
@@ -923,7 +937,7 @@ messageInput.addEventListener("input", () => {
 
 socket.on("joined", (user) => {
   state.me = user;
-  saveLogin(user);
+  saveLogin(user, pinInput.value.trim());
   joinScreen.classList.add("is-hidden");
   chatScreen.classList.remove("is-hidden");
   messageInput.focus();
@@ -1038,13 +1052,14 @@ renderEmojiPicker();
 renderStickerPicker();
 
 const savedLogin = getSavedLogin();
-if (savedLogin && savedLogin.name && savedLogin.sessionToken) {
+if (savedLogin && savedLogin.name && savedLogin.pin) {
   nameInput.value = savedLogin.name;
+  pinInput.value = savedLogin.pin;
   state.selectedAvatar = savedLogin.avatar || { type: "initial", value: initials(savedLogin.name) };
   renderAvatarPreview();
   socket.emit("join", {
     name: savedLogin.name,
+    pin: savedLogin.pin,
     avatar: state.selectedAvatar,
-    sessionToken: savedLogin.sessionToken,
   });
 }
