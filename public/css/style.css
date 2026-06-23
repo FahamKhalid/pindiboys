@@ -302,8 +302,8 @@ input::placeholder {
 }
 
 .app-logo {
-  width: 44px;
-  height: 44px;
+  width: 54px;
+  height: 54px;
   object-fit: contain;
   border-radius: 10px;
 }
@@ -978,8 +978,8 @@ input::placeholder {
   }
 
   .app-logo {
-    width: 36px;
-    height: 36px;
+    width: 42px;
+    height: 42px;
   }
 
   .app-header h1 {
