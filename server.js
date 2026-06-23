@@ -18,6 +18,8 @@ const {
   getCustomGroup,
   getCustomGroupsForUser,
   saveMessage,
+  getMessageById,
+  saveReaction,
   getGroupHistory,
   getPrivateHistory,
 } = require("./db");
@@ -48,7 +50,6 @@ const stickerIds = new Set([
   "thinking",
   "wink",
 ]);
-
 const users = new Map();
 const socketsByUser = new Map();
 
@@ -537,6 +538,34 @@ io.on("connection", (socket) => {
       name: user.name,
       isTyping: Boolean(isTyping),
     });
+  });
+
+  socket.on("react_message", async ({ messageId, emoji } = {}) => {
+    const user = users.get(socket.id);
+    const safeEmoji = String(emoji || "").trim().slice(0, 8);
+    const message = await getMessageById(messageId);
+
+    if (!user || !message || !safeEmoji) return;
+    await touchAccount(user.id);
+
+    const reactions = await saveReaction({
+      messageId: message.id,
+      userId: user.id,
+      emoji: safeEmoji,
+    });
+
+    const payload = {
+      messageId: message.id,
+      reactions,
+    };
+
+    if (message.type === "private") {
+      io.to(userRoom(message.senderId)).emit("message_reactions", payload);
+      io.to(userRoom(message.receiverId)).emit("message_reactions", payload);
+      return;
+    }
+
+    io.to(message.receiverId || "group").emit("message_reactions", payload);
   });
 
   socket.on("disconnect", async () => {

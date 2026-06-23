@@ -13,6 +13,7 @@ PindiBoys is a realtime Rawalpindi-style group and private chat app. Users join 
 - Create custom groups and add online users as members
 - Chat inside custom groups
 - Send emojis and voice messages
+- React to messages with emoji reactions
 - Send local sticker-pack stickers by reference
 - Uploaded profile images show beside names and messages
 - New users do not receive old public group history

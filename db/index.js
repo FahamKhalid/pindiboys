@@ -17,6 +17,7 @@ const memoryAccounts = new Map();
 const memoryFriends = new Set();
 const memoryGroups = new Map();
 const memoryGroupMembers = new Map();
+const memoryReactions = new Map();
 
 async function initDb() {
   if (!pool) {
@@ -78,6 +79,16 @@ async function initDb() {
       user_id VARCHAR(50) NOT NULL,
       joined_at TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (group_id, user_id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id VARCHAR(50) NOT NULL,
+      emoji VARCHAR(20) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (message_id, user_id)
     );
   `);
 }
@@ -333,7 +344,76 @@ function normalizeMessage(row) {
     text: row.text,
     mediaUrl: row.media_url,
     createdAt: row.created_at,
+    reactions: row.reactions || [],
   };
+}
+
+function summarizeReactionMap(reactionMap) {
+  const counts = new Map();
+  Array.from(reactionMap?.values?.() || []).forEach((emoji) => {
+    counts.set(emoji, (counts.get(emoji) || 0) + 1);
+  });
+
+  return Array.from(counts.entries()).map(([emoji, count]) => ({ emoji, count }));
+}
+
+async function getReactionSummary(messageId) {
+  if (!pool) {
+    return summarizeReactionMap(memoryReactions.get(Number(messageId)));
+  }
+
+  const result = await pool.query(
+    `
+      SELECT emoji, COUNT(*)::int AS count
+      FROM message_reactions
+      WHERE message_id = $1
+      GROUP BY emoji
+      ORDER BY MIN(created_at)
+    `,
+    [messageId]
+  );
+
+  return result.rows.map((row) => ({
+    emoji: row.emoji,
+    count: row.count,
+  }));
+}
+
+async function hydrateMessages(messages) {
+  if (!messages.length) return [];
+
+  if (!pool) {
+    return messages.map((message) => ({
+      ...message,
+      reactions: summarizeReactionMap(memoryReactions.get(Number(message.id))),
+    }));
+  }
+
+  const ids = messages.map((message) => message.id);
+  const result = await pool.query(
+    `
+      SELECT message_id, emoji, COUNT(*)::int AS count
+      FROM message_reactions
+      WHERE message_id = ANY($1)
+      GROUP BY message_id, emoji
+      ORDER BY MIN(created_at)
+    `,
+    [ids]
+  );
+
+  const reactionsByMessage = new Map();
+  result.rows.forEach((row) => {
+    if (!reactionsByMessage.has(row.message_id)) reactionsByMessage.set(row.message_id, []);
+    reactionsByMessage.get(row.message_id).push({
+      emoji: row.emoji,
+      count: row.count,
+    });
+  });
+
+  return messages.map((message) => ({
+    ...message,
+    reactions: reactionsByMessage.get(message.id) || [],
+  }));
 }
 
 async function saveMessage({
@@ -385,15 +465,66 @@ async function saveMessage({
   return normalizeMessage(result.rows[0]);
 }
 
+async function getMessageById(messageId) {
+  if (!pool) {
+    const row = memoryMessages.find((message) => Number(message.id) === Number(messageId));
+    return row ? normalizeMessage(row) : null;
+  }
+
+  const result = await pool.query("SELECT * FROM messages WHERE id = $1", [messageId]);
+  return result.rows[0] ? normalizeMessage(result.rows[0]) : null;
+}
+
+async function saveReaction({ messageId, userId, emoji }) {
+  if (!pool) {
+    const id = Number(messageId);
+    if (!memoryReactions.has(id)) memoryReactions.set(id, new Map());
+    const reactions = memoryReactions.get(id);
+
+    if (reactions.get(userId) === emoji) {
+      reactions.delete(userId);
+    } else {
+      reactions.set(userId, emoji);
+    }
+
+    return getReactionSummary(id);
+  }
+
+  const existing = await pool.query(
+    "SELECT emoji FROM message_reactions WHERE message_id = $1 AND user_id = $2",
+    [messageId, userId]
+  );
+
+  if (existing.rows[0]?.emoji === emoji) {
+    await pool.query("DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2", [
+      messageId,
+      userId,
+    ]);
+  } else {
+    await pool.query(
+      `
+        INSERT INTO message_reactions (message_id, user_id, emoji)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (message_id, user_id)
+        DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()
+      `,
+      [messageId, userId, emoji]
+    );
+  }
+
+  return getReactionSummary(messageId);
+}
+
 async function getGroupHistory(roomId = "group", limit = 50) {
   if (!pool) {
-    return memoryMessages
+    const messages = memoryMessages
       .filter(
         (message) =>
           message.type === "group" && (message.receiver_id || "group") === roomId
       )
       .slice(-limit)
       .map(normalizeMessage);
+    return hydrateMessages(messages);
   }
 
   const result = await pool.query(
@@ -412,12 +543,12 @@ async function getGroupHistory(roomId = "group", limit = 50) {
     [limit, roomId]
   );
 
-  return result.rows.map(normalizeMessage);
+  return hydrateMessages(result.rows.map(normalizeMessage));
 }
 
 async function getPrivateHistory(userId, withId, limit = 100) {
   if (!pool) {
-    return memoryMessages
+    const messages = memoryMessages
       .filter(
         (message) =>
           message.type === "private" &&
@@ -426,6 +557,7 @@ async function getPrivateHistory(userId, withId, limit = 100) {
       )
       .slice(-limit)
       .map(normalizeMessage);
+    return hydrateMessages(messages);
   }
 
   const result = await pool.query(
@@ -448,7 +580,7 @@ async function getPrivateHistory(userId, withId, limit = 100) {
     [userId, withId, limit]
   );
 
-  return result.rows.map(normalizeMessage);
+  return hydrateMessages(result.rows.map(normalizeMessage));
 }
 
 module.exports = {
@@ -464,6 +596,8 @@ module.exports = {
   getCustomGroup,
   getCustomGroupsForUser,
   saveMessage,
+  getMessageById,
+  saveReaction,
   getGroupHistory,
   getPrivateHistory,
 };

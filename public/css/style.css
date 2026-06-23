@@ -599,6 +599,7 @@ input::placeholder {
   background: #142a49;
   border-radius: 6px;
   overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
 .mine .message-bubble {
@@ -630,6 +631,25 @@ input::placeholder {
 .message-text {
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.message-reactions span {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  font-size: 0.86rem;
 }
 
 .typing-indicator {
@@ -690,6 +710,32 @@ input::placeholder {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+}
+
+.reaction-picker {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  gap: 6px;
+  padding: 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.reaction-picker button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border-radius: 50%;
+  font-size: 1.1rem;
+}
+
+.reaction-picker button:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .sticker-picker {

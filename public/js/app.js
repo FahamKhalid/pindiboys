@@ -24,6 +24,7 @@ const profileName = document.getElementById("profileName");
 const profileStatus = document.getElementById("profileStatus");
 const profileActions = document.getElementById("profileActions");
 const messages = document.getElementById("messages");
+const reactionPicker = document.getElementById("reactionPicker");
 const typingIndicator = document.getElementById("typingIndicator");
 const messageForm = document.getElementById("messageForm");
 const messageInput = document.getElementById("messageInput");
@@ -53,6 +54,7 @@ const avatarPresets = {
 };
 
 const emojis = ["😀", "😂", "😍", "😎", "🔥", "❤️", "👍", "👏", "🙌", "🎉", "😢", "😡"];
+const reactionEmojis = ["😀", "😂", "😍", "😎", "🔥", "❤️", "👍", "👏", "🙌", "🎉"];
 const stickerPack = [
   { id: "grinning", name: "Grinning" },
   { id: "joy", name: "Joy" },
@@ -94,6 +96,7 @@ const state = {
   modalMode: "create",
   modalGroupId: null,
   selectedMemberIds: new Set(),
+  selectedReactionMessageId: null,
   mediaRecorder: null,
   recordedChunks: [],
   isRecording: false,
@@ -476,6 +479,7 @@ function renderMessages() {
 
     const bubble = document.createElement("div");
     bubble.className = "message-bubble";
+    bubble.dataset.messageId = message.id;
 
     if (!message.system && message.senderId !== "system") {
       const meta = document.createElement("div");
@@ -507,11 +511,42 @@ function renderMessages() {
       bubble.appendChild(text);
     }
 
+    if (message.reactions && message.reactions.length > 0) {
+      const reactions = document.createElement("div");
+      reactions.className = "message-reactions";
+      message.reactions.forEach((reaction) => {
+        const item = document.createElement("span");
+        item.textContent = reaction.count > 1 ? `${reaction.emoji} ${reaction.count}` : reaction.emoji;
+        reactions.appendChild(item);
+      });
+      bubble.appendChild(reactions);
+    }
+
+    if (message.senderId !== "system") {
+      bubble.addEventListener("click", (event) => {
+        if (event.target.closest("audio")) return;
+        showReactionPicker(message.id, bubble);
+      });
+    }
+
     row.appendChild(bubble);
     messages.appendChild(row);
   });
 
   messages.scrollTop = messages.scrollHeight;
+}
+
+function updateMessageReactions(messageId, reactions) {
+  const update = (message) =>
+    Number(message.id) === Number(messageId) ? { ...message, reactions } : message;
+
+  state.groupMessages = state.groupMessages.map(update);
+  state.privateMessages.forEach((list, key) => {
+    state.privateMessages.set(key, list.map(update));
+  });
+  state.customGroupMessages.forEach((list, key) => {
+    state.customGroupMessages.set(key, list.map(update));
+  });
 }
 
 function render() {
@@ -777,6 +812,32 @@ function renderStickerPicker() {
   });
 }
 
+function showReactionPicker(messageId, bubble) {
+  state.selectedReactionMessageId = messageId;
+  const rect = bubble.getBoundingClientRect();
+  reactionPicker.style.left = `${Math.min(rect.left, window.innerWidth - 320)}px`;
+  reactionPicker.style.top = `${Math.max(8, rect.top - 52)}px`;
+  reactionPicker.classList.remove("is-hidden");
+}
+
+function renderReactionPicker() {
+  reactionPicker.innerHTML = "";
+  reactionEmojis.forEach((emoji) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = emoji;
+    button.addEventListener("click", () => {
+      if (!state.selectedReactionMessageId) return;
+      socket.emit("react_message", {
+        messageId: state.selectedReactionMessageId,
+        emoji,
+      });
+      reactionPicker.classList.add("is-hidden");
+    });
+    reactionPicker.appendChild(button);
+  });
+}
+
 presetButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const value = button.dataset.avatar;
@@ -893,6 +954,18 @@ emojiButton.addEventListener("click", () => {
 stickerButton.addEventListener("click", () => {
   stickerPicker.classList.toggle("is-hidden");
   emojiPicker.classList.add("is-hidden");
+});
+
+document.addEventListener("click", (event) => {
+  if (
+    reactionPicker.classList.contains("is-hidden") ||
+    event.target.closest(".reaction-picker") ||
+    event.target.closest(".message-bubble")
+  ) {
+    return;
+  }
+
+  reactionPicker.classList.add("is-hidden");
 });
 
 voiceButton.addEventListener("click", () => {
@@ -1030,6 +1103,11 @@ socket.on("private_notify", () => {
   render();
 });
 
+socket.on("message_reactions", ({ messageId, reactions }) => {
+  updateMessageReactions(messageId, reactions);
+  render();
+});
+
 socket.on("typing", ({ scope, fromId, name, isTyping }) => {
   const isRelevantGroup = state.chat.type === "group" && scope === "group";
   const isRelevantPrivate =
@@ -1050,6 +1128,7 @@ socket.on("typing", ({ scope, fromId, name, isTyping }) => {
 renderAvatarPreview();
 renderEmojiPicker();
 renderStickerPicker();
+renderReactionPicker();
 
 const savedLogin = getSavedLogin();
 if (savedLogin && savedLogin.name && savedLogin.pin) {
