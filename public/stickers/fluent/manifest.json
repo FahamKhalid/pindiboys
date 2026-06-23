@@ -1,0 +1,67 @@
+﻿[
+    {
+        "id":  "grinning",
+        "name":  "Grinning face",
+        "file":  "grinning.svg"
+    },
+    {
+        "id":  "joy",
+        "name":  "Face with tears of joy",
+        "file":  "joy.svg"
+    },
+    {
+        "id":  "heart_eyes",
+        "name":  "Smiling face with heart-eyes",
+        "file":  "heart_eyes.svg"
+    },
+    {
+        "id":  "heart",
+        "name":  "Red heart",
+        "file":  "heart.svg"
+    },
+    {
+        "id":  "fire",
+        "name":  "Fire",
+        "file":  "fire.svg"
+    },
+    {
+        "id":  "party",
+        "name":  "Party popper",
+        "file":  "party.svg"
+    },
+    {
+        "id":  "cry",
+        "name":  "Loudly crying face",
+        "file":  "cry.svg"
+    },
+    {
+        "id":  "angry",
+        "name":  "Angry face",
+        "file":  "angry.svg"
+    },
+    {
+        "id":  "star_struck",
+        "name":  "Star-struck",
+        "file":  "star_struck.svg"
+    },
+    {
+        "id":  "handshake",
+        "name":  "Handshake",
+        "file":  "handshake.svg"
+    },
+    {
+        "id":  "hundred",
+        "name":  "Hundred points",
+        "file":  "hundred.svg"
+    },
+    {
+        "id":  "thinking",
+        "name":  "Thinking face",
+        "file":  "thinking.svg"
+    },
+    {
+        "id":  "wink",
+        "name":  "Winking face",
+        "file":  "wink.svg"
+    }
+]

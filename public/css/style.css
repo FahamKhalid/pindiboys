@@ -26,6 +26,7 @@ body {
 
 body {
   margin: 0;
+  overflow: hidden;
   color: var(--text);
   background: linear-gradient(180deg, #0b1628 0%, var(--page-2) 100%);
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -42,8 +43,10 @@ button {
 }
 
 .app-shell {
-  min-height: 100%;
-  padding: 24px;
+  height: 100vh;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
 }
 
 .is-hidden {
@@ -51,7 +54,8 @@ button {
 }
 
 .join-screen {
-  min-height: calc(100vh - 48px);
+  height: 100%;
+  min-height: 0;
   display: grid;
   place-items: center;
 }
@@ -236,11 +240,12 @@ input::placeholder {
 }
 
 .chat-screen {
-  min-height: calc(100vh - 48px);
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: 400px minmax(360px, 1fr) 330px;
-  grid-template-rows: 66px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-rows: 56px minmax(0, 1fr);
+  gap: 14px;
 }
 
 .app-header {
@@ -250,6 +255,12 @@ input::placeholder {
   justify-content: space-between;
   gap: 16px;
   padding: 0 4px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .app-header h1 {
@@ -263,11 +274,21 @@ input::placeholder {
 }
 
 .app-search input {
-  height: 46px;
+  height: 42px;
   padding: 0 16px;
   color: var(--text);
   background: #213655;
   border-radius: 8px;
+}
+
+.logout-button {
+  min-height: 42px;
+  padding: 0 14px;
+  color: #ffffff;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 800;
 }
 
 .sidebar,
@@ -619,6 +640,41 @@ input::placeholder {
   box-shadow: var(--shadow);
 }
 
+.sticker-picker {
+  position: absolute;
+  right: 92px;
+  bottom: 62px;
+  width: 260px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.sticker-picker button {
+  height: 54px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.sticker-picker img,
+.message-sticker {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.message-sticker {
+  width: 78px;
+  height: 78px;
+}
+
 .emoji-picker button {
   height: 32px;
   background: rgba(255, 255, 255, 0.08);
@@ -814,12 +870,13 @@ input::placeholder {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 12px;
+    padding: 10px;
   }
 
   .join-screen,
   .chat-screen {
-    min-height: calc(100vh - 24px);
+    height: 100%;
+    min-height: 0;
   }
 
   .join-panel {
@@ -846,9 +903,13 @@ input::placeholder {
     width: 48%;
   }
 
+  .logout-button {
+    display: none;
+  }
+
   .sidebar {
     position: fixed;
-    inset: 76px auto 12px 12px;
+    inset: 68px auto 10px 10px;
     z-index: 5;
     width: min(330px, calc(100vw - 24px));
     transform: translateX(calc(-100% - 20px));
@@ -874,5 +935,11 @@ input::placeholder {
   .message-bubble {
     max-width: 82%;
     padding: 14px 16px;
+  }
+
+  .sticker-picker,
+  .emoji-picker {
+    right: 10px;
+    width: min(260px, calc(100vw - 32px));
   }
 }

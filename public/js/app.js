@@ -12,6 +12,7 @@ const friendsList = document.getElementById("friendsList");
 const customGroupsList = document.getElementById("customGroupsList");
 const onlineCount = document.getElementById("onlineCount");
 const searchInput = document.getElementById("searchInput");
+const logoutButton = document.getElementById("logoutButton");
 const groupTab = document.getElementById("groupTab");
 const groupBadge = document.getElementById("groupBadge");
 const chatHeaderAvatar = document.getElementById("chatHeaderAvatar");
@@ -27,6 +28,8 @@ const messageForm = document.getElementById("messageForm");
 const messageInput = document.getElementById("messageInput");
 const emojiButton = document.getElementById("emojiButton");
 const emojiPicker = document.getElementById("emojiPicker");
+const stickerButton = document.getElementById("stickerButton");
+const stickerPicker = document.getElementById("stickerPicker");
 const voiceButton = document.getElementById("voiceButton");
 const recordingStatus = document.getElementById("recordingStatus");
 const menuButton = document.getElementById("menuButton");
@@ -49,6 +52,22 @@ const avatarPresets = {
 };
 
 const emojis = ["😀", "😂", "😍", "😎", "🔥", "❤️", "👍", "👏", "🙌", "🎉", "😢", "😡"];
+const stickerPack = [
+  { id: "grinning", name: "Grinning" },
+  { id: "joy", name: "Joy" },
+  { id: "heart_eyes", name: "Heart eyes" },
+  { id: "heart", name: "Heart" },
+  { id: "fire", name: "Fire" },
+  { id: "party", name: "Party" },
+  { id: "cry", name: "Cry" },
+  { id: "angry", name: "Angry" },
+  { id: "star_struck", name: "Star" },
+  { id: "handshake", name: "Handshake" },
+  { id: "hundred", name: "Hundred" },
+  { id: "thinking", name: "Thinking" },
+  { id: "wink", name: "Wink" },
+];
+const savedLoginKey = "pindiboys.session.v1";
 
 const groupUser = {
   id: "group",
@@ -96,6 +115,29 @@ function initials(name) {
 
 function setJoinError(message) {
   joinError.textContent = message || "";
+}
+
+function getSavedLogin() {
+  try {
+    return JSON.parse(localStorage.getItem(savedLoginKey) || "null");
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveLogin(user) {
+  localStorage.setItem(
+    savedLoginKey,
+    JSON.stringify({
+      name: user.name,
+      avatar: user.avatar,
+      sessionToken: user.sessionToken,
+    })
+  );
+}
+
+function clearSavedLogin() {
+  localStorage.removeItem(savedLoginKey);
 }
 
 function isMine(message) {
@@ -435,7 +477,13 @@ function renderMessages() {
       bubble.appendChild(meta);
     }
 
-    if (message.kind === "voice" && message.mediaUrl) {
+    if (message.kind === "sticker" && message.mediaUrl) {
+      const sticker = document.createElement("img");
+      sticker.className = "message-sticker";
+      sticker.alt = message.text || "Sticker";
+      sticker.src = message.mediaUrl;
+      bubble.appendChild(sticker);
+    } else if (message.kind === "voice" && message.mediaUrl) {
       const audio = document.createElement("audio");
       audio.className = "voice-player";
       audio.controls = true;
@@ -697,6 +745,27 @@ function renderEmojiPicker() {
   });
 }
 
+function renderStickerPicker() {
+  stickerPicker.innerHTML = "";
+  stickerPack.forEach((sticker) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.title = sticker.name;
+
+    const image = document.createElement("img");
+    image.alt = sticker.name;
+    image.src = `/stickers/fluent/${sticker.id}.svg`;
+    button.appendChild(image);
+
+    button.addEventListener("click", () => {
+      sendCurrentChatMessage({ kind: "sticker", text: sticker.id });
+      stickerPicker.classList.add("is-hidden");
+    });
+
+    stickerPicker.appendChild(button);
+  });
+}
+
 presetButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const value = button.dataset.avatar;
@@ -755,7 +824,12 @@ joinForm.addEventListener("submit", (event) => {
   }
 
   setJoinError("");
-  socket.emit("join", { name, avatar: state.selectedAvatar });
+  const saved = getSavedLogin();
+  socket.emit("join", {
+    name,
+    avatar: state.selectedAvatar,
+    sessionToken: saved && saved.name === name ? saved.sessionToken : null,
+  });
 });
 
 groupTab.addEventListener("click", openGroupChat);
@@ -797,6 +871,12 @@ menuButton.addEventListener("click", () => {
 
 emojiButton.addEventListener("click", () => {
   emojiPicker.classList.toggle("is-hidden");
+  stickerPicker.classList.add("is-hidden");
+});
+
+stickerButton.addEventListener("click", () => {
+  stickerPicker.classList.toggle("is-hidden");
+  emojiPicker.classList.add("is-hidden");
 });
 
 voiceButton.addEventListener("click", () => {
@@ -841,13 +921,24 @@ messageInput.addEventListener("input", () => {
 
 socket.on("joined", (user) => {
   state.me = user;
+  saveLogin(user);
   joinScreen.classList.add("is-hidden");
   chatScreen.classList.remove("is-hidden");
   messageInput.focus();
 });
 
 socket.on("join_error", ({ message }) => {
+  clearSavedLogin();
   setJoinError(message);
+});
+
+logoutButton.addEventListener("click", () => {
+  clearSavedLogin();
+  socket.emit("logout");
+});
+
+socket.on("logged_out", () => {
+  clearSavedLogin();
 });
 
 socket.on("user_list", (users) => {
@@ -942,3 +1033,16 @@ socket.on("typing", ({ scope, fromId, name, isTyping }) => {
 
 renderAvatarPreview();
 renderEmojiPicker();
+renderStickerPicker();
+
+const savedLogin = getSavedLogin();
+if (savedLogin && savedLogin.name && savedLogin.sessionToken) {
+  nameInput.value = savedLogin.name;
+  state.selectedAvatar = savedLogin.avatar || { type: "initial", value: initials(savedLogin.name) };
+  renderAvatarPreview();
+  socket.emit("join", {
+    name: savedLogin.name,
+    avatar: state.selectedAvatar,
+    sessionToken: savedLogin.sessionToken,
+  });
+}

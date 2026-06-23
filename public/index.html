@@ -62,8 +62,11 @@
       <section id="chatScreen" class="chat-screen is-hidden" aria-live="polite">
         <header class="app-header">
           <h1>PindiBoys</h1>
-          <div class="app-search">
-            <input id="searchInput" type="search" placeholder="Search" />
+          <div class="header-actions">
+            <div class="app-search">
+              <input id="searchInput" type="search" placeholder="Search" />
+            </div>
+            <button id="logoutButton" class="logout-button" type="button">Logout</button>
           </div>
         </header>
 
@@ -125,10 +128,12 @@
             />
             <div class="message-tools">
               <button id="emojiButton" class="tool-button" type="button" aria-label="Emoji">☺</button>
+              <button id="stickerButton" class="tool-button" type="button" aria-label="Stickers">Sticker</button>
               <button id="voiceButton" class="tool-button" type="button" aria-label="Voice message">Mic</button>
             </div>
             <button class="send-button" type="submit" aria-label="Send message">Send</button>
             <div id="emojiPicker" class="emoji-picker is-hidden" aria-label="Emoji picker"></div>
+            <div id="stickerPicker" class="sticker-picker is-hidden" aria-label="Sticker picker"></div>
           </form>
           <div id="recordingStatus" class="recording-status"></div>
         </section>

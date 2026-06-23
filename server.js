@@ -21,9 +21,27 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+const SESSION_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const stickerIds = new Set([
+  "angry",
+  "cry",
+  "fire",
+  "grinning",
+  "handshake",
+  "heart",
+  "heart_eyes",
+  "hundred",
+  "joy",
+  "party",
+  "star_struck",
+  "thinking",
+  "wink",
+]);
 const users = new Map();
 const friends = new Map();
 const customGroups = new Map();
+const sessions = new Map();
+const usernameSessions = new Map();
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -42,6 +60,35 @@ function cleanText(text) {
   return String(text || "").trim().slice(0, 1000);
 }
 
+function nameKey(name) {
+  return cleanName(name).toLowerCase();
+}
+
+function makeSessionToken() {
+  return `sess_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function isExpired(session) {
+  return !session || Date.now() - session.lastSeen > SESSION_TTL_MS;
+}
+
+function cleanupExpiredSessions() {
+  sessions.forEach((session, token) => {
+    if (!isExpired(session)) return;
+    sessions.delete(token);
+    if (usernameSessions.get(nameKey(session.name)) === token) {
+      usernameSessions.delete(nameKey(session.name));
+    }
+  });
+}
+
+function touchSession(token) {
+  const session = sessions.get(token);
+  if (session) session.lastSeen = Date.now();
+}
+
 function cleanMediaUrl(mediaUrl) {
   const value = String(mediaUrl || "");
   const isAudioData = /^data:audio\/(webm|ogg|mpeg|mp4|wav);base64,/i.test(value);
@@ -49,8 +96,18 @@ function cleanMediaUrl(mediaUrl) {
 }
 
 function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
-  const safeKind = kind === "voice" ? "voice" : "text";
+  const safeKind = kind === "voice" || kind === "sticker" ? kind : "text";
   const safeText = cleanText(text);
+
+  if (safeKind === "sticker") {
+    const stickerId = safeText.replace(/[^a-z0-9_]/gi, "");
+    if (!stickerIds.has(stickerId)) return null;
+    return {
+      kind: "sticker",
+      text: stickerId,
+      mediaUrl: `/stickers/fluent/${stickerId}.svg`,
+    };
+  }
 
   if (safeKind === "voice") {
     const safeMediaUrl = cleanMediaUrl(mediaUrl);
@@ -168,18 +225,49 @@ function makeGroupId() {
 }
 
 io.on("connection", (socket) => {
-  socket.on("join", async ({ name, avatar } = {}) => {
+  socket.on("join", async ({ name, avatar, sessionToken } = {}) => {
+    cleanupExpiredSessions();
     const safeName = cleanName(name);
+    const safeNameKey = nameKey(safeName);
+    const oldToken = String(sessionToken || "");
+    const oldSession = sessions.get(oldToken);
+    const canResume =
+      oldToken &&
+      oldSession &&
+      !isExpired(oldSession) &&
+      nameKey(oldSession.name) === safeNameKey;
 
     if (!safeName) {
       socket.emit("join_error", { message: "Naam zaroori hai." });
       return;
     }
 
+    const lockedByToken = usernameSessions.get(safeNameKey);
+    if (lockedByToken && lockedByToken !== oldToken && !isExpired(sessions.get(lockedByToken))) {
+      socket.emit("join_error", { message: "Username already in use." });
+      return;
+    }
+
+    if (lockedByToken && isExpired(sessions.get(lockedByToken))) {
+      sessions.delete(lockedByToken);
+      usernameSessions.delete(safeNameKey);
+    }
+
+    const token = canResume ? oldToken : makeSessionToken();
+    const safeAvatar = canResume ? oldSession.avatar : cleanAvatar(avatar, safeName);
+    sessions.set(token, {
+      token,
+      name: safeName,
+      avatar: safeAvatar,
+      lastSeen: Date.now(),
+    });
+    usernameSessions.set(safeNameKey, token);
+
     const user = {
       id: socket.id,
       name: safeName,
-      avatar: cleanAvatar(avatar, safeName),
+      avatar: safeAvatar,
+      sessionToken: token,
     };
 
     users.set(socket.id, user);
@@ -208,6 +296,7 @@ io.on("connection", (socket) => {
     const safePayload = cleanMessagePayload(payload);
 
     if (!user || !safePayload) return;
+    touchSession(user.sessionToken);
 
     const message = await saveMessage({
       type: "group",
@@ -228,6 +317,7 @@ io.on("connection", (socket) => {
     const safePayload = cleanMessagePayload(payload);
 
     if (!user || !group || !group.members.has(socket.id) || !safePayload) return;
+    touchSession(user.sessionToken);
 
     const message = await saveMessage({
       type: "group",
@@ -252,6 +342,7 @@ io.on("connection", (socket) => {
     const safePayload = cleanMessagePayload(payload);
 
     if (!sender || !receiver || !safePayload) return;
+    touchSession(sender.sessionToken);
 
     const message = await saveMessage({
       type: "private",
@@ -288,6 +379,7 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     const other = users.get(userId);
     if (!user || !other || user.id === other.id) return;
+    touchSession(user.sessionToken);
 
     addFriendship(user.id, other.id);
     emitSocialState(user.id);
@@ -305,6 +397,7 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     const safeName = cleanName(name);
     if (!user || !safeName) return;
+    touchSession(user.sessionToken);
 
     const members = new Set([socket.id]);
     memberIds.forEach((memberId) => {
@@ -345,6 +438,7 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     const group = customGroups.get(groupId);
     if (!user || !group || !group.members.has(socket.id)) return;
+    touchSession(user.sessionToken);
 
     const addedUsers = [];
     memberIds.forEach((memberId) => {
@@ -388,6 +482,7 @@ io.on("connection", (socket) => {
   socket.on("typing", ({ toId, isTyping } = {}) => {
     const user = users.get(socket.id);
     if (!user) return;
+    touchSession(user.sessionToken);
 
     if (toId) {
       socket.to(toId).emit("typing", {
@@ -427,6 +522,34 @@ io.on("connection", (socket) => {
     });
 
     emitUserList();
+  });
+
+  socket.on("logout", async () => {
+    const user = users.get(socket.id);
+    if (!user) return;
+
+    users.delete(socket.id);
+    sessions.delete(user.sessionToken);
+    if (usernameSessions.get(nameKey(user.name)) === user.sessionToken) {
+      usernameSessions.delete(nameKey(user.name));
+    }
+    removeFromSocialState(socket.id);
+
+    const systemMessage = await saveMessage({
+      type: "group",
+      senderId: "system",
+      senderName: "System",
+      text: `${user.name} left Pindi Gang`,
+    });
+
+    socket.to("group").emit("group_message", {
+      ...systemMessage,
+      system: true,
+    });
+
+    emitUserList();
+    socket.emit("logged_out");
+    socket.disconnect(true);
   });
 });
 
