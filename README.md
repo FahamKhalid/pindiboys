@@ -2,6 +2,15 @@
 
 PindiBoys is a realtime Rawalpindi-style group and private chat app. Users join with only a name, then chat in the public Pindi Gang room or start private 1-on-1 chats from the online user list.
 
+## Features
+
+- Soft blue messenger dashboard design
+- Join with only a display name
+- Optional profile photo upload on join
+- Four built-in preset avatars plus default initials
+- Group and private chat
+- Typing indicators and unread badges
+
 ## Tech Stack
 
 - Node.js

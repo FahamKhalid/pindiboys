@@ -39,6 +39,28 @@ function cleanText(text) {
   return String(text || "").trim().slice(0, 1000);
 }
 
+function cleanAvatar(avatar, name) {
+  const initialAvatar = {
+    type: "initial",
+    value: avatarFor(name),
+  };
+
+  if (!avatar || typeof avatar !== "object") return initialAvatar;
+
+  if (avatar.type === "preset") {
+    const value = String(avatar.value || "").trim().slice(0, 24);
+    return value ? { type: "preset", value } : initialAvatar;
+  }
+
+  if (avatar.type === "image") {
+    const value = String(avatar.value || "");
+    const isImageData = /^data:image\/(png|jpe?g|webp);base64,/i.test(value);
+    return isImageData && value.length < 350000 ? { type: "image", value } : initialAvatar;
+  }
+
+  return initialAvatar;
+}
+
 function avatarFor(name) {
   return cleanName(name).charAt(0).toUpperCase() || "P";
 }
@@ -56,7 +78,7 @@ function emitUserList() {
 }
 
 io.on("connection", (socket) => {
-  socket.on("join", async ({ name } = {}) => {
+  socket.on("join", async ({ name, avatar } = {}) => {
     const safeName = cleanName(name);
 
     if (!safeName) {
@@ -67,7 +89,7 @@ io.on("connection", (socket) => {
     const user = {
       id: socket.id,
       name: safeName,
-      avatar: avatarFor(safeName),
+      avatar: cleanAvatar(avatar, safeName),
     };
 
     users.set(socket.id, user);
