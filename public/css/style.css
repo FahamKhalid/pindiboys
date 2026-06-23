@@ -58,30 +58,38 @@ button {
   min-height: 0;
   display: grid;
   place-items: center;
+  padding: 10px;
 }
 
 .join-panel {
-  width: min(760px, 100%);
+  width: min(920px, 100%);
+  max-height: 100%;
   display: grid;
-  grid-template-columns: 0.9fr 1.1fr;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 0.9fr);
   gap: 22px;
-  padding: 22px;
+  padding: clamp(16px, 3vw, 28px);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
+  overflow: auto;
 }
 
 .join-copy {
-  display: grid;
-  align-content: center;
-  gap: 16px;
-  padding: 26px;
-  background: var(--panel-2);
-  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: clamp(18px, 4vw, 34px);
+  background:
+    radial-gradient(circle at 50% 38%, rgba(102, 140, 246, 0.16), transparent 18rem),
+    #070d19;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  text-align: center;
 }
 
-.brand-mark,
 .avatar {
   display: grid;
   place-items: center;
@@ -92,15 +100,20 @@ button {
   overflow: hidden;
 }
 
-.brand-mark {
-  width: 58px;
-  height: 58px;
-  border-radius: 8px;
+.brand-logo {
+  width: min(310px, 82%);
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 0 24px rgba(102, 140, 246, 0.32));
+}
+
+.animated-logo {
+  animation: logoFloat 4.8s ease-in-out infinite;
 }
 
 .join-panel h1 {
   margin: 0;
-  font-size: clamp(2.5rem, 7vw, 4rem);
+  font-size: clamp(2rem, 5vw, 3.5rem);
   line-height: 1;
   letter-spacing: 0;
 }
@@ -115,7 +128,7 @@ button {
   display: grid;
   align-content: center;
   gap: 16px;
-  padding: 18px;
+  padding: clamp(8px, 2vw, 18px);
 }
 
 .join-form label,
@@ -184,15 +197,16 @@ input::placeholder {
 }
 
 .avatar-preview {
-  width: 64px;
-  height: 64px;
-  border-radius: 8px;
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
 }
 
 .avatar img,
 .avatar-preview img,
 .profile-avatar img,
-.message-avatar img {
+.message-avatar img,
+.member-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -218,7 +232,7 @@ input::placeholder {
 }
 
 .preset-avatar {
-  min-height: 40px;
+  min-height: 42px;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -255,6 +269,20 @@ input::placeholder {
   justify-content: space-between;
   gap: 16px;
   padding: 0 4px;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 10px;
 }
 
 .header-actions {
@@ -398,6 +426,7 @@ input::placeholder {
   position: relative;
   border-radius: 8px;
   font-size: 0.9rem;
+  background: var(--active);
 }
 
 .avatar::after {
@@ -858,6 +887,18 @@ input::placeholder {
   }
 }
 
+@keyframes logoFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 0 20px rgba(102, 140, 246, 0.28));
+  }
+  50% {
+    transform: translateY(-8px) scale(1.02);
+    filter: drop-shadow(0 0 32px rgba(196, 74, 255, 0.38));
+  }
+}
+
 @media (max-width: 1180px) {
   .chat-screen {
     grid-template-columns: 330px minmax(320px, 1fr);
@@ -881,6 +922,16 @@ input::placeholder {
 
   .join-panel {
     grid-template-columns: 1fr;
+    max-height: 100%;
+    gap: 12px;
+  }
+
+  .join-copy {
+    padding: 18px;
+  }
+
+  .brand-logo {
+    width: min(230px, 76%);
   }
 
   .join-row,
@@ -901,6 +952,15 @@ input::placeholder {
 
   .app-search {
     width: 48%;
+  }
+
+  .app-logo {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-header h1 {
+    font-size: 1.12rem;
   }
 
   .logout-button {

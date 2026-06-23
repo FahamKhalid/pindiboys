@@ -45,10 +45,10 @@ const groupError = document.getElementById("groupError");
 const presetButtons = Array.from(document.querySelectorAll(".preset-avatar"));
 
 const avatarPresets = {
-  rider: { text: "RD", gradient: "linear-gradient(135deg, #ff8a5b, #f05a88)" },
-  gamer: { text: "GM", gradient: "linear-gradient(135deg, #4d7cff, #8b5cf6)" },
-  star: { text: "ST", gradient: "linear-gradient(135deg, #f7c948, #ff9e43)" },
-  boss: { text: "BS", gradient: "linear-gradient(135deg, #1fbd8a, #2b5bc4)" },
+  rider: { src: "/assets/avatar-rider.svg" },
+  gamer: { src: "/assets/avatar-gamer.svg" },
+  star: { src: "/assets/avatar-star.svg" },
+  boss: { src: "/assets/avatar-boss.svg" },
 };
 
 const emojis = ["😀", "😂", "😍", "😎", "🔥", "❤️", "👍", "👏", "🙌", "🎉", "😢", "😡"];
@@ -197,8 +197,10 @@ function applyAvatar(el, user) {
 
   if (data.type === "preset") {
     const preset = avatarPresets[data.value];
-    el.style.background = preset.gradient;
-    el.textContent = preset.text;
+    const image = document.createElement("img");
+    image.alt = `${user?.name || "User"} avatar`;
+    image.src = preset.src;
+    el.appendChild(image);
     return el;
   }
 
