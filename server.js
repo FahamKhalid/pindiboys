@@ -91,7 +91,8 @@ function touchSession(token) {
 
 function cleanMediaUrl(mediaUrl) {
   const value = String(mediaUrl || "");
-  const isAudioData = /^data:audio\/(webm|ogg|mpeg|mp4|wav);base64,/i.test(value);
+  const isAudioData =
+    /^data:audio\/[a-z0-9.+-]+(?:;codecs=[^;]+)?;base64,/i.test(value);
   return isAudioData && value.length < 1_500_000 ? value : "";
 }
 
