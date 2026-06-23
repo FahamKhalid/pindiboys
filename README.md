@@ -9,7 +9,12 @@ PindiBoys is a realtime Rawalpindi-style group and private chat app. Users join 
 - Optional profile photo upload on join
 - Four built-in preset avatars plus default initials
 - Group and private chat
+- Add online users as friends
+- Create custom groups and add online users as members
+- Chat inside custom groups
 - Typing indicators and unread badges
+
+Friends and custom groups are session-based because this app does not require accounts or passwords. They reset when users disconnect or the server restarts.
 
 ## Tech Stack
 

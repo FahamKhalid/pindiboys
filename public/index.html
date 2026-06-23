@@ -70,9 +70,9 @@
 
         <aside id="sidebar" class="sidebar">
           <div class="sidebar-top-card">
-            <button class="create-button" type="button">
+            <button id="createGroupButton" class="create-button" type="button">
               <span>+</span>
-              Create New
+              Create Group
             </button>
           </div>
 
@@ -102,6 +102,12 @@
 
           <div class="section-title">Online Users</div>
           <div id="usersList" class="users-list"></div>
+
+          <div class="section-title">Friends</div>
+          <div id="friendsList" class="users-list"></div>
+
+          <div class="section-title">My Groups</div>
+          <div id="customGroupsList" class="users-list"></div>
         </aside>
 
         <section class="chat-main">
@@ -143,6 +149,8 @@
           <h2 id="profileName">Pindi Gang</h2>
           <p id="profileStatus">Group Chat</p>
 
+          <div id="profileActions" class="profile-actions"></div>
+
           <div class="info-stack">
             <button class="info-card starred" type="button">
               <span>☆</span>
@@ -166,6 +174,30 @@
             </button>
           </div>
         </aside>
+      </section>
+
+      <section id="groupModal" class="modal-backdrop is-hidden" aria-modal="true" role="dialog">
+        <form id="groupForm" class="group-modal">
+          <div class="modal-header">
+            <div>
+              <h2>Create Group</h2>
+              <p>Group ka naam likho aur members select karo.</p>
+            </div>
+            <button id="closeGroupModal" class="modal-close" type="button" aria-label="Close">x</button>
+          </div>
+
+          <label for="groupNameInput">Group name</label>
+          <input id="groupNameInput" type="text" maxlength="32" placeholder="College boys, office gang..." />
+
+          <div class="member-picker-head">
+            <strong>Add Members</strong>
+            <span id="memberCount">0 selected</span>
+          </div>
+          <div id="memberPicker" class="member-picker"></div>
+
+          <span id="groupError" class="form-error" role="alert"></span>
+          <button class="modal-submit" type="submit">Group Bana Do</button>
+        </form>
       </section>
     </main>
 

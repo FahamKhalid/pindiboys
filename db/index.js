@@ -73,10 +73,13 @@ async function saveMessage({ type, senderId, senderName, receiverId = null, text
   return normalizeMessage(result.rows[0]);
 }
 
-async function getGroupHistory(limit = 50) {
+async function getGroupHistory(roomId = "group", limit = 50) {
   if (!pool) {
     return memoryMessages
-      .filter((message) => message.type === "group")
+      .filter(
+        (message) =>
+          message.type === "group" && (message.receiver_id || "group") === roomId
+      )
       .slice(-limit)
       .map(normalizeMessage);
   }
@@ -88,12 +91,13 @@ async function getGroupHistory(limit = 50) {
         SELECT *
         FROM messages
         WHERE type = 'group'
+        AND COALESCE(receiver_id, 'group') = $2
         ORDER BY created_at DESC
         LIMIT $1
       ) recent
       ORDER BY created_at ASC
     `,
-    [limit]
+    [limit, roomId]
   );
 
   return result.rows.map(normalizeMessage);

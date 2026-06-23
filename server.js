@@ -21,6 +21,8 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const users = new Map();
+const friends = new Map();
+const customGroups = new Map();
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -73,8 +75,66 @@ function publicUsers() {
   }));
 }
 
+function publicGroupsFor(userId) {
+  return Array.from(customGroups.values())
+    .filter((group) => group.members.has(userId))
+    .map((group) => ({
+      id: group.id,
+      name: group.name,
+      ownerId: group.ownerId,
+      members: Array.from(group.members)
+        .map((memberId) => users.get(memberId))
+        .filter(Boolean)
+        .map((member) => ({
+          id: member.id,
+          name: member.name,
+          avatar: member.avatar,
+        })),
+    }));
+}
+
+function publicFriendIds(userId) {
+  return Array.from(friends.get(userId) || []);
+}
+
 function emitUserList() {
   io.emit("user_list", publicUsers());
+}
+
+function emitSocialState(userId) {
+  io.to(userId).emit("social_state", {
+    friends: publicFriendIds(userId),
+    customGroups: publicGroupsFor(userId),
+  });
+}
+
+function emitSocialStateForUsers(userIds) {
+  userIds.forEach((userId) => emitSocialState(userId));
+}
+
+function addFriendship(userA, userB) {
+  if (!friends.has(userA)) friends.set(userA, new Set());
+  if (!friends.has(userB)) friends.set(userB, new Set());
+  friends.get(userA).add(userB);
+  friends.get(userB).add(userA);
+}
+
+function removeFromSocialState(userId) {
+  friends.delete(userId);
+  friends.forEach((friendSet) => friendSet.delete(userId));
+
+  customGroups.forEach((group) => {
+    group.members.delete(userId);
+    if (group.ownerId === userId || group.members.size === 0) {
+      customGroups.delete(group.id);
+      return;
+    }
+    emitSocialStateForUsers(group.members);
+  });
+}
+
+function makeGroupId() {
+  return `room_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
 io.on("connection", (socket) => {
@@ -93,9 +153,11 @@ io.on("connection", (socket) => {
     };
 
     users.set(socket.id, user);
+    friends.set(socket.id, new Set());
     socket.join("group");
     socket.emit("joined", user);
     socket.emit("group_history", await getGroupHistory());
+    emitSocialState(socket.id);
 
     const systemMessage = await saveMessage({
       type: "group",
@@ -126,6 +188,27 @@ io.on("connection", (socket) => {
     });
 
     io.to("group").emit("group_message", message);
+  });
+
+  socket.on("custom_group_message", async ({ groupId, text } = {}) => {
+    const user = users.get(socket.id);
+    const group = customGroups.get(groupId);
+    const safeText = cleanText(text);
+
+    if (!user || !group || !group.members.has(socket.id) || !safeText) return;
+
+    const message = await saveMessage({
+      type: "group",
+      senderId: user.id,
+      senderName: user.name,
+      receiverId: group.id,
+      text: safeText,
+    });
+
+    io.to(group.id).emit("custom_group_message", {
+      groupId: group.id,
+      message,
+    });
   });
 
   socket.on("private_message", async ({ toId, text } = {}) => {
@@ -163,6 +246,107 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("add_friend", ({ userId } = {}) => {
+    const user = users.get(socket.id);
+    const other = users.get(userId);
+    if (!user || !other || user.id === other.id) return;
+
+    addFriendship(user.id, other.id);
+    emitSocialState(user.id);
+    emitSocialState(other.id);
+  });
+
+  socket.on("remove_friend", ({ userId } = {}) => {
+    if (friends.has(socket.id)) friends.get(socket.id).delete(userId);
+    if (friends.has(userId)) friends.get(userId).delete(socket.id);
+    emitSocialState(socket.id);
+    emitSocialState(userId);
+  });
+
+  socket.on("create_custom_group", async ({ name, memberIds = [] } = {}) => {
+    const user = users.get(socket.id);
+    const safeName = cleanName(name);
+    if (!user || !safeName) return;
+
+    const members = new Set([socket.id]);
+    memberIds.forEach((memberId) => {
+      if (users.has(memberId)) members.add(memberId);
+    });
+
+    const group = {
+      id: makeGroupId(),
+      name: safeName,
+      ownerId: socket.id,
+      members,
+    };
+
+    customGroups.set(group.id, group);
+    members.forEach((memberId) => {
+      const memberSocket = io.sockets.sockets.get(memberId);
+      if (memberSocket) memberSocket.join(group.id);
+    });
+
+    const systemMessage = await saveMessage({
+      type: "group",
+      senderId: "system",
+      senderName: "System",
+      receiverId: group.id,
+      text: `${user.name} created ${group.name}`,
+    });
+
+    io.to(group.id).emit("custom_group_message", {
+      groupId: group.id,
+      message: { ...systemMessage, system: true },
+    });
+
+    emitSocialStateForUsers(members);
+    socket.emit("custom_group_created", { groupId: group.id });
+  });
+
+  socket.on("add_group_members", async ({ groupId, memberIds = [] } = {}) => {
+    const user = users.get(socket.id);
+    const group = customGroups.get(groupId);
+    if (!user || !group || !group.members.has(socket.id)) return;
+
+    const addedUsers = [];
+    memberIds.forEach((memberId) => {
+      const member = users.get(memberId);
+      if (!member || group.members.has(memberId)) return;
+      group.members.add(memberId);
+      const memberSocket = io.sockets.sockets.get(memberId);
+      if (memberSocket) memberSocket.join(group.id);
+      addedUsers.push(member);
+    });
+
+    if (!addedUsers.length) return;
+
+    const systemMessage = await saveMessage({
+      type: "group",
+      senderId: "system",
+      senderName: "System",
+      receiverId: group.id,
+      text: `${user.name} added ${addedUsers.map((member) => member.name).join(", ")}`,
+    });
+
+    io.to(group.id).emit("custom_group_message", {
+      groupId: group.id,
+      message: { ...systemMessage, system: true },
+    });
+
+    emitSocialStateForUsers(group.members);
+  });
+
+  socket.on("get_custom_group_history", async ({ groupId } = {}) => {
+    const user = users.get(socket.id);
+    const group = customGroups.get(groupId);
+    if (!user || !group || !group.members.has(socket.id)) return;
+
+    socket.emit("custom_group_history", {
+      groupId,
+      messages: await getGroupHistory(groupId),
+    });
+  });
+
   socket.on("typing", ({ toId, isTyping } = {}) => {
     const user = users.get(socket.id);
     if (!user) return;
@@ -188,6 +372,7 @@ io.on("connection", (socket) => {
   socket.on("disconnect", async () => {
     const user = users.get(socket.id);
     users.delete(socket.id);
+    removeFromSocialState(socket.id);
 
     if (!user) return;
 
