@@ -242,7 +242,7 @@ function renderUsers() {
   if (!otherUsers.length) {
     const empty = document.createElement("div");
     empty.className = "chat-tab empty-tab";
-    empty.textContent = query ? "Koi user nahi mila." : "Abhi sirf aap online ho.";
+    empty.textContent = query ? "No users" : "No online users";
     usersList.appendChild(empty);
     return;
   }
@@ -257,7 +257,7 @@ function renderUsers() {
         active: state.chat.type === "private" && state.chat.withId === user.id,
         unread: state.unread.get(user.id) || 0,
         onClick: () => openPrivateChat(user.id),
-        actionLabel: isFriend ? "✓" : "+",
+        actionLabel: isFriend ? "Added" : "+",
         actionTitle: isFriend ? "Already friend" : "Add friend",
         onAction: () => {
           if (!isFriend) socket.emit("add_friend", { userId: user.id });
@@ -274,7 +274,7 @@ function renderFriends() {
   if (!friendUsers.length) {
     const empty = document.createElement("div");
     empty.className = "chat-tab empty-tab";
-    empty.textContent = "Friends yahan show honge.";
+    empty.textContent = "No friends";
     friendsList.appendChild(empty);
     return;
   }
@@ -299,7 +299,7 @@ function renderCustomGroups() {
   if (!state.customGroups.length) {
     const empty = document.createElement("div");
     empty.className = "chat-tab empty-tab";
-    empty.textContent = "Create Group se apna group banao.";
+    empty.textContent = "No groups";
     customGroupsList.appendChild(empty);
     return;
   }
@@ -366,9 +366,9 @@ function renderHeader() {
 
   if (state.chat.type === "group") {
     chatTitle.textContent = "Pindi Gang";
-    chatStatus.textContent = "Group chat active";
+    chatStatus.textContent = "Group";
     profileName.textContent = "Pindi Gang";
-    profileStatus.textContent = `${state.users.length} boys online`;
+    profileStatus.textContent = `${state.users.length} online`;
   } else if (state.chat.type === "customGroup") {
     const group = activeCustomGroup();
     chatTitle.textContent = group?.name || "My Group";
@@ -536,7 +536,7 @@ function renderMemberPicker() {
   if (!members.length) {
     const empty = document.createElement("div");
     empty.className = "member-empty";
-    empty.textContent = "Koi online user available nahi.";
+    empty.textContent = "No users";
     memberPicker.appendChild(empty);
     return;
   }
@@ -570,15 +570,12 @@ function openGroupModal(mode = "create", groupId = null) {
   groupError.textContent = "";
   groupNameInput.value = "";
   groupNameInput.disabled = mode === "add";
-  groupNameInput.placeholder = mode === "add" ? "Adding members" : "College boys, office gang...";
+  groupNameInput.placeholder = mode === "add" ? "Add members" : "Group name";
 
   const title = groupModal.querySelector(".modal-header h2");
   const copy = groupModal.querySelector(".modal-header p");
   title.textContent = mode === "add" ? "Add Members" : "Create Group";
-  copy.textContent =
-    mode === "add"
-      ? "Is group mein online users ko add karo."
-      : "Group ka naam likho aur members select karo.";
+  copy.textContent = "Select online members.";
 
   renderMemberPicker();
   groupModal.classList.remove("is-hidden");
