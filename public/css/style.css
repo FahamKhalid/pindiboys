@@ -602,6 +602,13 @@ input::placeholder {
   cursor: pointer;
 }
 
+.message-bubble.timed-hidden {
+  cursor: default;
+  color: #9fb0ca;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
 .mine .message-bubble {
   color: #ffffff;
   background: var(--active);
@@ -628,9 +635,22 @@ input::placeholder {
   color: rgba(255, 255, 255, 0.8);
 }
 
+.timed-badge {
+  padding: 1px 6px;
+  color: #cfe0ff;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  font-size: 0.7rem;
+}
+
 .message-text {
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.timed-placeholder {
+  color: #aebbd1;
+  font-style: italic;
 }
 
 .message-reactions {
@@ -680,7 +700,20 @@ input::placeholder {
 
 .message-tools {
   display: inline-flex;
+  align-items: center;
   gap: 8px;
+}
+
+.timer-select {
+  width: 84px;
+  height: 40px;
+  padding: 0 8px;
+  color: #ffffff;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-weight: 800;
+  outline: none;
 }
 
 .tool-button {
@@ -1066,6 +1099,22 @@ input::placeholder {
   .message-bubble {
     max-width: 82%;
     padding: 14px 16px;
+  }
+
+  .message-tools {
+    gap: 5px;
+  }
+
+  .timer-select {
+    width: 68px;
+    padding: 0 4px;
+    font-size: 0.76rem;
+  }
+
+  .tool-button {
+    min-width: 38px;
+    padding: 0 8px;
+    font-size: 0.76rem;
   }
 
   .sticker-picker,

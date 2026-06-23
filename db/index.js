@@ -18,6 +18,7 @@ const memoryFriends = new Set();
 const memoryGroups = new Map();
 const memoryGroupMembers = new Map();
 const memoryReactions = new Map();
+const memoryMessageViews = new Map();
 
 async function initDb() {
   if (!pool) {
@@ -41,7 +42,9 @@ async function initDb() {
     ALTER TABLE messages
     ADD COLUMN IF NOT EXISTS kind VARCHAR(20) DEFAULT 'text',
     ADD COLUMN IF NOT EXISTS media_url TEXT,
-    ADD COLUMN IF NOT EXISTS sender_avatar TEXT;
+    ADD COLUMN IF NOT EXISTS sender_avatar TEXT,
+    ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS one_view BOOLEAN DEFAULT FALSE;
   `);
 
   await pool.query(`
@@ -88,6 +91,15 @@ async function initDb() {
       user_id VARCHAR(50) NOT NULL,
       emoji VARCHAR(20) NOT NULL,
       created_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (message_id, user_id)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_views (
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id VARCHAR(50) NOT NULL,
+      viewed_at TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (message_id, user_id)
     );
   `);
@@ -343,6 +355,9 @@ function normalizeMessage(row) {
     receiverId: row.receiver_id,
     text: row.text,
     mediaUrl: row.media_url,
+    expiresAt: row.expires_at,
+    oneView: Boolean(row.one_view),
+    viewedBy: row.viewed_by || [],
     createdAt: row.created_at,
     reactions: row.reactions || [],
   };
@@ -386,6 +401,7 @@ async function hydrateMessages(messages) {
     return messages.map((message) => ({
       ...message,
       reactions: summarizeReactionMap(memoryReactions.get(Number(message.id))),
+      viewedBy: Array.from(memoryMessageViews.get(Number(message.id)) || []),
     }));
   }
 
@@ -410,9 +426,25 @@ async function hydrateMessages(messages) {
     });
   });
 
+  const viewsResult = await pool.query(
+    `
+      SELECT message_id, user_id
+      FROM message_views
+      WHERE message_id = ANY($1)
+    `,
+    [ids]
+  );
+
+  const viewsByMessage = new Map();
+  viewsResult.rows.forEach((row) => {
+    if (!viewsByMessage.has(row.message_id)) viewsByMessage.set(row.message_id, []);
+    viewsByMessage.get(row.message_id).push(row.user_id);
+  });
+
   return messages.map((message) => ({
     ...message,
     reactions: reactionsByMessage.get(message.id) || [],
+    viewedBy: viewsByMessage.get(message.id) || [],
   }));
 }
 
@@ -425,6 +457,8 @@ async function saveMessage({
   receiverId = null,
   text,
   mediaUrl = null,
+  expiresAt = null,
+  oneView = false,
 }) {
   if (!pool) {
     const message = {
@@ -437,6 +471,8 @@ async function saveMessage({
       receiver_id: receiverId,
       text,
       media_url: mediaUrl,
+      expires_at: expiresAt,
+      one_view: Boolean(oneView),
       created_at: new Date().toISOString(),
     };
 
@@ -446,8 +482,8 @@ async function saveMessage({
 
   const result = await pool.query(
     `
-      INSERT INTO messages (type, kind, sender_id, sender_name, sender_avatar, receiver_id, text, media_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO messages (type, kind, sender_id, sender_name, sender_avatar, receiver_id, text, media_url, expires_at, one_view)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `,
     [
@@ -459,6 +495,8 @@ async function saveMessage({
       receiverId,
       text,
       mediaUrl,
+      expiresAt,
+      Boolean(oneView),
     ]
   );
 
@@ -473,6 +511,26 @@ async function getMessageById(messageId) {
 
   const result = await pool.query("SELECT * FROM messages WHERE id = $1", [messageId]);
   return result.rows[0] ? normalizeMessage(result.rows[0]) : null;
+}
+
+async function saveMessageView({ messageId, userId }) {
+  if (!messageId || !userId) return;
+
+  if (!pool) {
+    const id = Number(messageId);
+    if (!memoryMessageViews.has(id)) memoryMessageViews.set(id, new Set());
+    memoryMessageViews.get(id).add(userId);
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO message_views (message_id, user_id)
+      VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
+    `,
+    [messageId, userId]
+  );
 }
 
 async function saveReaction({ messageId, userId, emoji }) {
@@ -597,6 +655,7 @@ module.exports = {
   getCustomGroupsForUser,
   saveMessage,
   getMessageById,
+  saveMessageView,
   saveReaction,
   getGroupHistory,
   getPrivateHistory,

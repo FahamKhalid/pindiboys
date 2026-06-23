@@ -19,6 +19,7 @@ const {
   getCustomGroupsForUser,
   saveMessage,
   getMessageById,
+  saveMessageView,
   saveReaction,
   getGroupHistory,
   getPrivateHistory,
@@ -36,6 +37,7 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PRESENCE_SYSTEM_DELAY_MS = 30 * 1000;
+const TIMED_MESSAGE_SECONDS = new Set([5, 10, 15]);
 const stickerIds = new Set([
   "angry",
   "cry",
@@ -97,9 +99,18 @@ function cleanMediaUrl(mediaUrl) {
   return isAudioData && value.length < 1_500_000 ? value : "";
 }
 
-function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
+function cleanMessagePayload({ text, kind, mediaUrl, timerSeconds, oneView } = {}) {
   const safeKind = kind === "voice" || kind === "sticker" ? kind : "text";
   const safeText = cleanText(text);
+  const safeTimerSeconds = Number(timerSeconds);
+  const expiresAt = TIMED_MESSAGE_SECONDS.has(safeTimerSeconds)
+    ? new Date(Date.now() + safeTimerSeconds * 1000).toISOString()
+    : null;
+  const isOneView = Boolean(oneView);
+  const meta = {
+    expiresAt,
+    oneView: isOneView,
+  };
 
   if (safeKind === "sticker") {
     const stickerId = safeText.replace(/[^a-z0-9_]/gi, "");
@@ -108,6 +119,7 @@ function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
       kind: "sticker",
       text: stickerId,
       mediaUrl: `/stickers/fluent/${stickerId}.svg`,
+      ...meta,
     };
   }
 
@@ -118,6 +130,7 @@ function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
       kind: "voice",
       text: safeText || "Voice message",
       mediaUrl: safeMediaUrl,
+      ...meta,
     };
   }
 
@@ -127,6 +140,7 @@ function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
     kind: "text",
     text: safeText,
     mediaUrl: null,
+    ...meta,
   };
 }
 
@@ -353,6 +367,8 @@ io.on("connection", (socket) => {
       senderAvatar: user.avatar,
       text: safePayload.text,
       mediaUrl: safePayload.mediaUrl,
+      expiresAt: safePayload.expiresAt,
+      oneView: safePayload.oneView,
     });
 
     io.to("group").emit("group_message", message);
@@ -383,6 +399,8 @@ io.on("connection", (socket) => {
       receiverId: group.id,
       text: safePayload.text,
       mediaUrl: safePayload.mediaUrl,
+      expiresAt: safePayload.expiresAt,
+      oneView: safePayload.oneView,
     });
 
     io.to(group.id).emit("custom_group_message", {
@@ -408,6 +426,8 @@ io.on("connection", (socket) => {
       receiverId: receiver.id,
       text: safePayload.text,
       mediaUrl: safePayload.mediaUrl,
+      expiresAt: safePayload.expiresAt,
+      oneView: safePayload.oneView,
     });
 
     socket.emit("private_message", message);
@@ -605,6 +625,23 @@ io.on("connection", (socket) => {
     }
 
     io.to(message.receiverId || "group").emit("message_reactions", payload);
+  });
+
+  socket.on("view_message", async ({ messageId } = {}) => {
+    const user = users.get(socket.id);
+    const message = await getMessageById(messageId);
+
+    if (!user || !message || message.senderId === user.id || !message.oneView) return;
+
+    if (message.type === "private") {
+      const canView = message.senderId === user.id || message.receiverId === user.id;
+      if (!canView) return;
+    } else if (message.receiverId && message.receiverId !== "group") {
+      const group = await getCustomGroup(message.receiverId);
+      if (!group?.members.some((member) => member.id === user.id)) return;
+    }
+
+    await saveMessageView({ messageId: message.id, userId: user.id });
   });
 
   socket.on("disconnect", async () => {

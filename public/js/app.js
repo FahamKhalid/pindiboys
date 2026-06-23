@@ -28,6 +28,7 @@ const reactionPicker = document.getElementById("reactionPicker");
 const typingIndicator = document.getElementById("typingIndicator");
 const messageForm = document.getElementById("messageForm");
 const messageInput = document.getElementById("messageInput");
+const timerSelect = document.getElementById("timerSelect");
 const emojiButton = document.getElementById("emojiButton");
 const emojiPicker = document.getElementById("emojiPicker");
 const stickerButton = document.getElementById("stickerButton");
@@ -97,11 +98,13 @@ const state = {
   modalGroupId: null,
   selectedMemberIds: new Set(),
   selectedReactionMessageId: null,
+  viewedOneTimeMessages: new Set(),
   mediaRecorder: null,
   recordedChunks: [],
   isRecording: false,
   typingTimeout: null,
   typingClearTimeout: null,
+  timedRenderTimeout: null,
 };
 
 function formatTime(value) {
@@ -154,6 +157,43 @@ function clearSavedLogin() {
 
 function isMine(message) {
   return state.me && message.senderId === state.me.id;
+}
+
+function isTimedMessageExpired(message) {
+  return Boolean(message.expiresAt && Date.now() >= new Date(message.expiresAt).getTime());
+}
+
+function isOneViewMessageViewed(message) {
+  if (!message.oneView || isMine(message)) return false;
+  return Array.isArray(message.viewedBy) && state.me && message.viewedBy.includes(state.me.id);
+}
+
+function isMessageHidden(message) {
+  return isTimedMessageExpired(message) || isOneViewMessageViewed(message);
+}
+
+function selectedTimerPayload() {
+  const mode = timerSelect.value;
+  if (mode === "view") return { oneView: true };
+  if (["5", "10", "15"].includes(mode)) return { timerSeconds: Number(mode) };
+  return {};
+}
+
+function markOneViewMessagesSeen() {
+  if (!state.me) return;
+
+  currentMessages().forEach((message) => {
+    const id = Number(message.id);
+    if (
+      message.oneView &&
+      !isMine(message) &&
+      !state.viewedOneTimeMessages.has(id) &&
+      !(Array.isArray(message.viewedBy) && message.viewedBy.includes(state.me.id))
+    ) {
+      state.viewedOneTimeMessages.add(id);
+      socket.emit("view_message", { messageId: message.id });
+    }
+  });
 }
 
 function activePrivateUser() {
@@ -465,6 +505,8 @@ function currentMessages() {
 
 function renderMessages() {
   messages.innerHTML = "";
+  clearTimeout(state.timedRenderTimeout);
+  let nextExpiryDelay = null;
 
   currentMessages().forEach((message) => {
     const row = document.createElement("div");
@@ -480,6 +522,8 @@ function renderMessages() {
     const bubble = document.createElement("div");
     bubble.className = "message-bubble";
     bubble.dataset.messageId = message.id;
+    const hiddenMessage = isMessageHidden(message);
+    bubble.classList.toggle("timed-hidden", hiddenMessage);
 
     if (!message.system && message.senderId !== "system") {
       const meta = document.createElement("div");
@@ -489,10 +533,23 @@ function renderMessages() {
       const time = document.createElement("span");
       time.textContent = formatTime(message.createdAt);
       meta.append(sender, time);
+
+      if (message.oneView || message.expiresAt) {
+        const timer = document.createElement("span");
+        timer.className = "timed-badge";
+        timer.textContent = message.oneView ? "1 View" : "Timed";
+        meta.appendChild(timer);
+      }
+
       bubble.appendChild(meta);
     }
 
-    if (message.kind === "sticker" && message.mediaUrl) {
+    if (hiddenMessage) {
+      const text = document.createElement("div");
+      text.className = "message-text timed-placeholder";
+      text.textContent = "Timed message";
+      bubble.appendChild(text);
+    } else if (message.kind === "sticker" && message.mediaUrl) {
       const sticker = document.createElement("img");
       sticker.className = "message-sticker";
       sticker.alt = message.text || "Sticker";
@@ -522,7 +579,7 @@ function renderMessages() {
       bubble.appendChild(reactions);
     }
 
-    if (message.senderId !== "system") {
+    if (message.senderId !== "system" && !hiddenMessage) {
       bubble.addEventListener("click", (event) => {
         if (event.target.closest("audio")) return;
         showReactionPicker(message.id, bubble);
@@ -531,9 +588,19 @@ function renderMessages() {
 
     row.appendChild(bubble);
     messages.appendChild(row);
+
+    if (message.expiresAt && !hiddenMessage) {
+      const delay = new Date(message.expiresAt).getTime() - Date.now();
+      if (delay > 0) nextExpiryDelay = nextExpiryDelay === null ? delay : Math.min(nextExpiryDelay, delay);
+    }
   });
 
   messages.scrollTop = messages.scrollHeight;
+  markOneViewMessagesSeen();
+
+  if (nextExpiryDelay !== null) {
+    state.timedRenderTimeout = setTimeout(renderMessages, nextExpiryDelay + 150);
+  }
 }
 
 function updateMessageReactions(messageId, reactions) {
@@ -706,13 +773,17 @@ function closeModal() {
 }
 
 function sendCurrentChatMessage(payload) {
+  const outgoing = { ...payload, ...selectedTimerPayload() };
+
   if (state.chat.type === "group") {
-    socket.emit("group_message", payload);
+    socket.emit("group_message", outgoing);
   } else if (state.chat.type === "customGroup") {
-    socket.emit("custom_group_message", { groupId: state.chat.withId, ...payload });
+    socket.emit("custom_group_message", { groupId: state.chat.withId, ...outgoing });
   } else {
-    socket.emit("private_message", { toId: state.chat.withId, ...payload });
+    socket.emit("private_message", { toId: state.chat.withId, ...outgoing });
   }
+
+  timerSelect.value = "off";
 }
 
 function blobToDataUrl(blob) {
