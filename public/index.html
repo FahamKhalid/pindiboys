@@ -18,8 +18,6 @@
         <div class="join-panel">
           <div class="join-copy">
             <img class="brand-logo animated-logo" src="/assets/pindiboys-logo.webp" alt="PindiBoys" />
-            <h1>PindiBoys</h1>
-            <p>Naam likho, avatar choose karo, chat join karo.</p>
           </div>
 
           <form id="joinForm" class="join-form">
@@ -59,11 +57,21 @@
               <div class="preset-wrap">
                 <span>Avatar</span>
                 <div class="preset-grid">
-                  <button class="preset-avatar active" type="button" data-avatar="initial">None</button>
-                  <button class="preset-avatar" type="button" data-avatar="rider">Rider</button>
-                  <button class="preset-avatar" type="button" data-avatar="gamer">Gamer</button>
-                  <button class="preset-avatar" type="button" data-avatar="star">Star</button>
-                  <button class="preset-avatar" type="button" data-avatar="boss">Boss</button>
+                  <button class="preset-avatar active" type="button" data-avatar="initial" aria-label="No image">
+                    <span class="preset-initial">PB</span>
+                  </button>
+                  <button class="preset-avatar" type="button" data-avatar="rider" aria-label="Rider avatar">
+                    <img src="/assets/avatar-rider.svg" alt="" />
+                  </button>
+                  <button class="preset-avatar" type="button" data-avatar="gamer" aria-label="Gamer avatar">
+                    <img src="/assets/avatar-gamer.svg" alt="" />
+                  </button>
+                  <button class="preset-avatar" type="button" data-avatar="star" aria-label="Star avatar">
+                    <img src="/assets/avatar-star.svg" alt="" />
+                  </button>
+                  <button class="preset-avatar" type="button" data-avatar="boss" aria-label="Boss avatar">
+                    <img src="/assets/avatar-boss.svg" alt="" />
+                  </button>
                 </div>
               </div>
             </div>
