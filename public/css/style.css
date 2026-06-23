@@ -1033,7 +1033,9 @@ input::placeholder {
   }
 
   .logout-button {
-    display: none;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 0.82rem;
   }
 
   .sidebar {

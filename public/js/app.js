@@ -1024,10 +1024,14 @@ socket.on("join_error", ({ message }) => {
 logoutButton.addEventListener("click", () => {
   clearSavedLogin();
   socket.emit("logout");
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 250);
 });
 
 socket.on("logged_out", () => {
   clearSavedLogin();
+  window.location.reload();
 });
 
 socket.on("user_list", (users) => {

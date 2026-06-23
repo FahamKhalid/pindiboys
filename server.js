@@ -590,7 +590,11 @@ io.on("connection", (socket) => {
 
   socket.on("logout", async () => {
     const user = removeOnlineSocket(socket.id);
-    if (!user) return;
+    if (!user) {
+      socket.emit("logged_out");
+      socket.disconnect(true);
+      return;
+    }
 
     const systemMessage = await saveMessage({
       type: "group",
