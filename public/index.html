@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PindiBoys Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="joinScreen" class="join-screen">
+        <div class="join-panel">
+          <div class="brand-mark">PB</div>
+          <h1>PindiBoys</h1>
+          <p>Apna naam likho aur Pindi Gang mein seedha join ho jao.</p>
+
+          <form id="joinForm" class="join-form">
+            <label for="nameInput">Apna naam likho</label>
+            <div class="join-row">
+              <input
+                id="nameInput"
+                type="text"
+                maxlength="32"
+                autocomplete="name"
+                placeholder="Ali, Ahmed, Usman..."
+                required
+              />
+              <button type="submit">Chat Join Karo</button>
+            </div>
+            <span id="joinError" class="form-error" role="alert"></span>
+          </form>
+        </div>
+      </section>
+
+      <section id="chatScreen" class="chat-screen is-hidden" aria-live="polite">
+        <aside id="sidebar" class="sidebar">
+          <div class="sidebar-header">
+            <div class="logo-badge">PB</div>
+            <div>
+              <strong>PindiBoys</strong>
+              <span id="onlineCount">0 online</span>
+            </div>
+          </div>
+
+          <button id="groupTab" class="chat-tab active" type="button">
+            <span class="tab-main">
+              <span class="avatar group-avatar">PG</span>
+              <span>
+                <strong>Pindi Gang</strong>
+                <small>Group Chat</small>
+              </span>
+            </span>
+            <span id="groupBadge" class="badge is-hidden">0</span>
+          </button>
+
+          <div class="section-title">Online Users</div>
+          <div id="usersList" class="users-list"></div>
+        </aside>
+
+        <section class="chat-main">
+          <header class="chat-header">
+            <button id="menuButton" class="icon-button" type="button" aria-label="Open sidebar">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+
+            <div>
+              <h2 id="chatTitle">Pindi Gang</h2>
+              <p id="chatStatus">Group chat active</p>
+            </div>
+          </header>
+
+          <div id="messages" class="messages"></div>
+
+          <div id="typingIndicator" class="typing-indicator"></div>
+
+          <form id="messageForm" class="message-form">
+            <input
+              id="messageInput"
+              type="text"
+              autocomplete="off"
+              placeholder="Message likho..."
+              maxlength="1000"
+            />
+            <button type="submit">Send</button>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/app.js"></script>
+  </body>
+</html>
