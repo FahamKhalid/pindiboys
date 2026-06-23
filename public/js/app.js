@@ -25,6 +25,10 @@ const messages = document.getElementById("messages");
 const typingIndicator = document.getElementById("typingIndicator");
 const messageForm = document.getElementById("messageForm");
 const messageInput = document.getElementById("messageInput");
+const emojiButton = document.getElementById("emojiButton");
+const emojiPicker = document.getElementById("emojiPicker");
+const voiceButton = document.getElementById("voiceButton");
+const recordingStatus = document.getElementById("recordingStatus");
 const menuButton = document.getElementById("menuButton");
 const sidebar = document.getElementById("sidebar");
 const createGroupButton = document.getElementById("createGroupButton");
@@ -43,6 +47,8 @@ const avatarPresets = {
   star: { text: "ST", gradient: "linear-gradient(135deg, #f7c948, #ff9e43)" },
   boss: { text: "BS", gradient: "linear-gradient(135deg, #1fbd8a, #2b5bc4)" },
 };
+
+const emojis = ["😀", "😂", "😍", "😎", "🔥", "❤️", "👍", "👏", "🙌", "🎉", "😢", "😡"];
 
 const groupUser = {
   id: "group",
@@ -67,6 +73,9 @@ const state = {
   modalMode: "create",
   modalGroupId: null,
   selectedMemberIds: new Set(),
+  mediaRecorder: null,
+  recordedChunks: [],
+  isRecording: false,
   typingTimeout: null,
   typingClearTimeout: null,
 };
@@ -159,6 +168,13 @@ function makeAvatar(user, className = "") {
   const avatar = document.createElement("span");
   avatar.className = `avatar ${className}`.trim();
   return applyAvatar(avatar, user);
+}
+
+function messageAvatarUser(message) {
+  return userById(message.senderId) || {
+    name: message.senderName,
+    avatar: message.senderAvatar || { type: "initial", value: initials(message.senderName) },
+  };
 }
 
 function renderAvatarPreview() {
@@ -402,7 +418,7 @@ function renderMessages() {
 
     const showAvatar = !isMine(message) && message.senderId !== "system";
     if (showAvatar) {
-      row.appendChild(makeAvatar(userById(message.senderId) || { name: message.senderName }, "message-avatar"));
+      row.appendChild(makeAvatar(messageAvatarUser(message), "message-avatar"));
     }
 
     const bubble = document.createElement("div");
@@ -419,10 +435,19 @@ function renderMessages() {
       bubble.appendChild(meta);
     }
 
-    const text = document.createElement("div");
-    text.className = "message-text";
-    text.textContent = message.text;
-    bubble.appendChild(text);
+    if (message.kind === "voice" && message.mediaUrl) {
+      const audio = document.createElement("audio");
+      audio.className = "voice-player";
+      audio.controls = true;
+      audio.src = message.mediaUrl;
+      bubble.appendChild(audio);
+    } else {
+      const text = document.createElement("div");
+      text.className = "message-text";
+      text.textContent = message.text;
+      bubble.appendChild(text);
+    }
+
     row.appendChild(bubble);
     messages.appendChild(row);
   });
@@ -586,6 +611,92 @@ function closeModal() {
   groupModal.classList.add("is-hidden");
 }
 
+function sendCurrentChatMessage(payload) {
+  if (state.chat.type === "group") {
+    socket.emit("group_message", payload);
+  } else if (state.chat.type === "customGroup") {
+    socket.emit("custom_group_message", { groupId: state.chat.withId, ...payload });
+  } else {
+    socket.emit("private_message", { toId: state.chat.withId, ...payload });
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function stopVoiceRecording() {
+  if (!state.mediaRecorder || !state.isRecording) return;
+  state.mediaRecorder.stop();
+}
+
+async function startVoiceRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    recordingStatus.textContent = "Voice not supported in this browser.";
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.recordedChunks = [];
+    state.mediaRecorder = new MediaRecorder(stream);
+
+    state.mediaRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) state.recordedChunks.push(event.data);
+    });
+
+    state.mediaRecorder.addEventListener("stop", async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      state.isRecording = false;
+      voiceButton.textContent = "Mic";
+      voiceButton.classList.remove("recording");
+      recordingStatus.textContent = "";
+
+      const blob = new Blob(state.recordedChunks, { type: state.mediaRecorder.mimeType || "audio/webm" });
+      if (!blob.size) return;
+
+      const mediaUrl = await blobToDataUrl(blob);
+      sendCurrentChatMessage({
+        kind: "voice",
+        text: "Voice message",
+        mediaUrl,
+      });
+    });
+
+    state.mediaRecorder.start();
+    state.isRecording = true;
+    voiceButton.textContent = "Stop";
+    voiceButton.classList.add("recording");
+    recordingStatus.textContent = "Recording...";
+  } catch (_error) {
+    recordingStatus.textContent = "Mic permission required.";
+  }
+}
+
+function renderEmojiPicker() {
+  emojiPicker.innerHTML = "";
+  emojis.forEach((emoji) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = emoji;
+    button.addEventListener("click", () => {
+      const start = messageInput.selectionStart ?? messageInput.value.length;
+      const end = messageInput.selectionEnd ?? messageInput.value.length;
+      messageInput.value = `${messageInput.value.slice(0, start)}${emoji}${messageInput.value.slice(end)}`;
+      messageInput.focus();
+      messageInput.selectionStart = start + emoji.length;
+      messageInput.selectionEnd = start + emoji.length;
+      emojiPicker.classList.add("is-hidden");
+    });
+    emojiPicker.appendChild(button);
+  });
+}
+
 presetButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const value = button.dataset.avatar;
@@ -684,18 +795,25 @@ menuButton.addEventListener("click", () => {
   sidebar.classList.toggle("open");
 });
 
+emojiButton.addEventListener("click", () => {
+  emojiPicker.classList.toggle("is-hidden");
+});
+
+voiceButton.addEventListener("click", () => {
+  if (state.isRecording) {
+    stopVoiceRecording();
+    return;
+  }
+
+  startVoiceRecording();
+});
+
 messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = messageInput.value.trim();
   if (!text) return;
 
-  if (state.chat.type === "group") {
-    socket.emit("group_message", { text });
-  } else if (state.chat.type === "customGroup") {
-    socket.emit("custom_group_message", { groupId: state.chat.withId, text });
-  } else {
-    socket.emit("private_message", { toId: state.chat.withId, text });
-  }
+  sendCurrentChatMessage({ kind: "text", text });
 
   messageInput.value = "";
   socket.emit("typing", {
@@ -823,3 +941,4 @@ socket.on("typing", ({ scope, fromId, name, isTyping }) => {
 });
 
 renderAvatarPreview();
+renderEmojiPicker();

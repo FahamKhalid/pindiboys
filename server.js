@@ -14,6 +14,7 @@ const {
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
+  maxHttpBufferSize: 2_000_000,
   cors: {
     origin: "*",
   },
@@ -39,6 +40,35 @@ function cleanName(name) {
 
 function cleanText(text) {
   return String(text || "").trim().slice(0, 1000);
+}
+
+function cleanMediaUrl(mediaUrl) {
+  const value = String(mediaUrl || "");
+  const isAudioData = /^data:audio\/(webm|ogg|mpeg|mp4|wav);base64,/i.test(value);
+  return isAudioData && value.length < 1_500_000 ? value : "";
+}
+
+function cleanMessagePayload({ text, kind, mediaUrl } = {}) {
+  const safeKind = kind === "voice" ? "voice" : "text";
+  const safeText = cleanText(text);
+
+  if (safeKind === "voice") {
+    const safeMediaUrl = cleanMediaUrl(mediaUrl);
+    if (!safeMediaUrl) return null;
+    return {
+      kind: "voice",
+      text: safeText || "Voice message",
+      mediaUrl: safeMediaUrl,
+    };
+  }
+
+  if (!safeText) return null;
+
+  return {
+    kind: "text",
+    text: safeText,
+    mediaUrl: null,
+  };
 }
 
 function cleanAvatar(avatar, name) {
@@ -156,7 +186,6 @@ io.on("connection", (socket) => {
     friends.set(socket.id, new Set());
     socket.join("group");
     socket.emit("joined", user);
-    socket.emit("group_history", await getGroupHistory());
     emitSocialState(socket.id);
 
     const systemMessage = await saveMessage({
@@ -174,35 +203,41 @@ io.on("connection", (socket) => {
     emitUserList();
   });
 
-  socket.on("group_message", async ({ text } = {}) => {
+  socket.on("group_message", async (payload = {}) => {
     const user = users.get(socket.id);
-    const safeText = cleanText(text);
+    const safePayload = cleanMessagePayload(payload);
 
-    if (!user || !safeText) return;
+    if (!user || !safePayload) return;
 
     const message = await saveMessage({
       type: "group",
+      kind: safePayload.kind,
       senderId: user.id,
       senderName: user.name,
-      text: safeText,
+      senderAvatar: user.avatar,
+      text: safePayload.text,
+      mediaUrl: safePayload.mediaUrl,
     });
 
     io.to("group").emit("group_message", message);
   });
 
-  socket.on("custom_group_message", async ({ groupId, text } = {}) => {
+  socket.on("custom_group_message", async ({ groupId, ...payload } = {}) => {
     const user = users.get(socket.id);
     const group = customGroups.get(groupId);
-    const safeText = cleanText(text);
+    const safePayload = cleanMessagePayload(payload);
 
-    if (!user || !group || !group.members.has(socket.id) || !safeText) return;
+    if (!user || !group || !group.members.has(socket.id) || !safePayload) return;
 
     const message = await saveMessage({
       type: "group",
+      kind: safePayload.kind,
       senderId: user.id,
       senderName: user.name,
+      senderAvatar: user.avatar,
       receiverId: group.id,
-      text: safeText,
+      text: safePayload.text,
+      mediaUrl: safePayload.mediaUrl,
     });
 
     io.to(group.id).emit("custom_group_message", {
@@ -211,19 +246,22 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("private_message", async ({ toId, text } = {}) => {
+  socket.on("private_message", async ({ toId, ...payload } = {}) => {
     const sender = users.get(socket.id);
     const receiver = users.get(toId);
-    const safeText = cleanText(text);
+    const safePayload = cleanMessagePayload(payload);
 
-    if (!sender || !receiver || !safeText) return;
+    if (!sender || !receiver || !safePayload) return;
 
     const message = await saveMessage({
       type: "private",
+      kind: safePayload.kind,
       senderId: sender.id,
       senderName: sender.name,
+      senderAvatar: sender.avatar,
       receiverId: receiver.id,
-      text: safeText,
+      text: safePayload.text,
+      mediaUrl: safePayload.mediaUrl,
     });
 
     socket.emit("private_message", message);

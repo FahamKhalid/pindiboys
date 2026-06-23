@@ -123,8 +123,14 @@
               placeholder="Say something..."
               maxlength="1000"
             />
+            <div class="message-tools">
+              <button id="emojiButton" class="tool-button" type="button" aria-label="Emoji">☺</button>
+              <button id="voiceButton" class="tool-button" type="button" aria-label="Voice message">Mic</button>
+            </div>
             <button class="send-button" type="submit" aria-label="Send message">Send</button>
+            <div id="emojiPicker" class="emoji-picker is-hidden" aria-label="Emoji picker"></div>
           </form>
+          <div id="recordingStatus" class="recording-status"></div>
         </section>
 
         <aside id="profilePanel" class="profile-panel">
