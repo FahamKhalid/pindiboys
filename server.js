@@ -35,6 +35,7 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const PRESENCE_SYSTEM_DELAY_MS = 30 * 1000;
 const stickerIds = new Set([
   "angry",
   "cry",
@@ -52,6 +53,7 @@ const stickerIds = new Set([
 ]);
 const users = new Map();
 const socketsByUser = new Map();
+const pendingPresenceLeaves = new Map();
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -186,12 +188,14 @@ function removeOnlineSocket(socketId) {
   if (!user) return null;
 
   const socketIds = socketsByUser.get(user.id);
+  let becameOffline = true;
   if (socketIds) {
     socketIds.delete(socketId);
-    if (!socketIds.size) socketsByUser.delete(user.id);
+    becameOffline = !socketIds.size;
+    if (becameOffline) socketsByUser.delete(user.id);
   }
 
-  return user;
+  return { user, becameOffline };
 }
 
 function firstSocketForUser(userId) {
@@ -217,6 +221,46 @@ async function emitSocialState(userId) {
 
 async function emitSocialStateForUsers(userIds) {
   await Promise.all(Array.from(userIds).map((userId) => emitSocialState(userId)));
+}
+
+function cancelPendingPresenceLeave(userId) {
+  const pending = pendingPresenceLeaves.get(userId);
+  if (!pending) return false;
+
+  clearTimeout(pending);
+  pendingPresenceLeaves.delete(userId);
+  return true;
+}
+
+async function broadcastSystemMessage(text) {
+  const systemMessage = await saveMessage({
+    type: "group",
+    senderId: "system",
+    senderName: "System",
+    text,
+  });
+
+  io.to("group").emit("group_message", {
+    ...systemMessage,
+    system: true,
+  });
+}
+
+function schedulePresenceLeave(user) {
+  cancelPendingPresenceLeave(user.id);
+
+  const timeout = setTimeout(async () => {
+    pendingPresenceLeaves.delete(user.id);
+    if (socketsByUser.has(user.id)) return;
+
+    try {
+      await broadcastSystemMessage(`${user.name} left Pindi Gang`);
+    } catch (error) {
+      console.error("Failed to save delayed presence message", error);
+    }
+  }, PRESENCE_SYSTEM_DELAY_MS);
+
+  pendingPresenceLeaves.set(user.id, timeout);
 }
 
 function makeGroupId() {
@@ -268,6 +312,9 @@ io.on("connection", (socket) => {
       pinSaved: true,
     };
 
+    const wasOnline = socketsByUser.has(user.id);
+    const resumedQuickly = cancelPendingPresenceLeave(user.id);
+
     addOnlineSocket(socket.id, user);
     socket.join("group");
     socket.join(userRoom(user.id));
@@ -284,17 +331,9 @@ io.on("connection", (socket) => {
 
     await emitSocialState(user.id);
 
-    const systemMessage = await saveMessage({
-      type: "group",
-      senderId: "system",
-      senderName: "System",
-      text: `${account.name} joined Pindi Gang`,
-    });
-
-    socket.to("group").emit("group_message", {
-      ...systemMessage,
-      system: true,
-    });
+    if (!wasOnline && !resumedQuickly) {
+      await broadcastSystemMessage(`${account.name} joined Pindi Gang`);
+    }
 
     await emitUserList();
   });
@@ -569,44 +608,29 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    const user = removeOnlineSocket(socket.id);
+    const presence = removeOnlineSocket(socket.id);
 
-    if (!user) return;
+    if (!presence) return;
 
-    const systemMessage = await saveMessage({
-      type: "group",
-      senderId: "system",
-      senderName: "System",
-      text: `${user.name} left Pindi Gang`,
-    });
-
-    socket.to("group").emit("group_message", {
-      ...systemMessage,
-      system: true,
-    });
+    if (presence.becameOffline) {
+      schedulePresenceLeave(presence.user);
+    }
 
     await emitUserList();
   });
 
   socket.on("logout", async () => {
-    const user = removeOnlineSocket(socket.id);
-    if (!user) {
+    const presence = removeOnlineSocket(socket.id);
+    if (!presence) {
       socket.emit("logged_out");
       socket.disconnect(true);
       return;
     }
 
-    const systemMessage = await saveMessage({
-      type: "group",
-      senderId: "system",
-      senderName: "System",
-      text: `${user.name} left Pindi Gang`,
-    });
-
-    socket.to("group").emit("group_message", {
-      ...systemMessage,
-      system: true,
-    });
+    cancelPendingPresenceLeave(presence.user.id);
+    if (presence.becameOffline) {
+      await broadcastSystemMessage(`${presence.user.name} left Pindi Gang`);
+    }
 
     await emitUserList();
     socket.emit("logged_out");
